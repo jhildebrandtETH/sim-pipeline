@@ -2,6 +2,9 @@ import docker
 import threading
 from convergence_tools import run_convergence_monitor
 
+
+convergence_check_interval = 5
+
 def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, convergence_window_size):
 
     # Docker client is setup here, interface volume mapping is defined, container is created:
@@ -75,18 +78,13 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     checkMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && checkMesh'"
 
-    print("checkMesh started...")
 
     result = container.exec_run(checkMesh_cmd, stream=True)
 
-    #for line in result.output:
-    #   print(line.decode('utf-8').strip())
+    for line in result.output:
+       print(line.decode('utf-8').strip())
 
-    for _ in result.output:
-        pass
-
-    print("checkMesh finsished...")
-
+    """
     createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave'"
 
     print("createNonConformalCouples started...")
@@ -124,7 +122,8 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
         kwargs={
             'main_sim_folder': simulation_working_directory, 
             'tolerance': convergence_tolerance, 
-            'window_size': convergence_window_size
+            'window_size': convergence_window_size,
+            'check_interval': convergence_check_interval
         }
     )
 
@@ -173,6 +172,22 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("reconstructPar finsished...")
 
+    """
+
+    # Create .FOAM file
+
+    foam_file_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && touch sim.foam'"
+
+
+    result = container.exec_run(foam_file_cmd, stream=True)
+
+    for _ in result.output:
+        pass
+
+    print("FOAM File created...")
+
+    
+
     # Stop and Remove active simulation container
 
     print(f"Stopping container '{container.name}'...")
@@ -183,4 +198,4 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("Cleanup complete. System ready for the next simulation.")
 
-openfoamSimulation('XY', r"C:\Users\jonas\Downloads\Playground\DeleteIt\propellerSimulationDemo\10X7E\RPM7000\kEpsilon")
+#openfoamSimulation("MaxMustermann", r"C:\Users\jonas\Downloads\propellerSimulationDemo-main (1)\propellerSimulationDemo-main\10X7E\RPM7000\kEpsilon", 1000, 20)

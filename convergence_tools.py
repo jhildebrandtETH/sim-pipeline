@@ -3,7 +3,8 @@ import time
 import numpy as np
 import re
 
-def run_convergence_monitor(main_sim_folder, window_size=500, tolerance=0.5, check_interval=5):
+def run_convergence_monitor(main_sim_folder, window_size, tolerance, check_interval):
+   
     """
     A single function to monitor an OpenFOAM simulation and stop it once converged.
     
@@ -14,13 +15,13 @@ def run_convergence_monitor(main_sim_folder, window_size=500, tolerance=0.5, che
         check_interval (int): Seconds to wait between file reads.
     """
     
-    # 1. Define internal paths based on the input variable
+    # Define internal paths based on the input variable
     force_file = os.path.join(main_sim_folder, "postProcessing", "forcesBlades", "0", "forces.dat")
     control_dict = os.path.join(main_sim_folder, "system", "controlDict")
 
     print(f"--- Monitoring Started for: {main_sim_folder} ---")
 
-    # 2. The Monitoring Loop
+    # The Monitoring Loop
     while True:
         if not os.path.exists(force_file):
             print(f"Waiting for force file to be created...")
@@ -47,7 +48,7 @@ def run_convergence_monitor(main_sim_folder, window_size=500, tolerance=0.5, che
                     avg_val = np.mean(recent_thrust)
                     print(f"Time: {latest_sim_time:.4f} | Avg Thrust: {avg_val:.4f} | StdDev: {std_dev:.6f}")
 
-                    # 3. Stop logic
+                    # Stop logic
                     if std_dev < tolerance:
                         print(f"\n>>> CONVERGENCE REACHED AT {latest_sim_time}s <<<")
                         
@@ -72,8 +73,3 @@ def run_convergence_monitor(main_sim_folder, window_size=500, tolerance=0.5, che
 
         # Wait before the next check
         time.sleep(check_interval)
-
-# --- EXAMPLE OF HOW TO CALL IT ---
-# if __name__ == "__main__":
-#    my_path = r"C:\Users\jonas\Downloads\Playground\propellerSimulationDemo\10X7E\RPM7000\kEpsilon"
-#    run_convergence_monitor(my_path, tolerance=0.1)
