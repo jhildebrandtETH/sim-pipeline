@@ -1,8 +1,8 @@
-
 ## --->  PE0_FILE_PATH, RPM, TARGET_DIRECTORY, CORE_TEMPLATE_DIRECTORY... --> THIS FUNCTION ---> READY TO RUN OPENFOAM SIMULATION FOR PARTRICULAR CASE
 
 import shutil
 import os
+import math
 from PropGeom.main import generateSTL
 
 interpolation_points = 100
@@ -21,7 +21,7 @@ def update_parameters(file_path, target_var, new_value):
         for line in f:
             parts = line.split()
             if len(parts) >= 2 and parts[0] == target_var:
-                lines.append(f"{target_var} {new_value}\n")
+                lines.append(f"{target_var} {new_value};\n")
                 updated = True
             else:
                 lines.append(line)
@@ -38,7 +38,7 @@ def update_parameters(file_path, target_var, new_value):
 #update_parameters(r"C:\Users\jonas\OneDrive\ETH\FS2026\Semester Project\GITHUB\Repository\sim-pipeline\Core Template\parameters.cpp", 'omega_val', 850.50)
 
 
-def preprocessing(PE0_NAME, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY):
+def preprocessing(PE0_NAME, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE):
 
  
     #1. duplicate Core Template to target directory
@@ -53,7 +53,11 @@ def preprocessing(PE0_NAME, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY):
     #3. adapt all exisiting parameters based on certain rules
 
     parameters_file_path = os.path.join(TARGET_DIRECTORY, 'parameters.cpp')
-    update_parameters(parameters_file_path, 'omega_val', RPM_COUNT)
+
+    omega = RPM_COUNT * 2 * math.pi / 60
+
+    update_parameters(parameters_file_path, 'omega_val', omega)
+    update_parameters(parameters_file_path, 'cores_to_use', CORES_TO_USE)
 
 
     #4. generate STL file from requestes described geometry (other function)

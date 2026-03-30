@@ -18,12 +18,12 @@ stopAt          endTime;
 
 endTime         0.2;
 
-deltaT          1.714286e-5;
+deltaT          1e-5;
 
 maxDeltaT       1e-04;
 
-writeControl    adjustableRunTime;
-writeInterval   0.001;
+writeControl    timeStep;
+writeInterval   10;
 
 ////- For testing with moveDynamicMesh
 //deltaT          0.01;

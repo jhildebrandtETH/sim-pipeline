@@ -3,7 +3,7 @@ import time
 import numpy as np
 import re
 
-def run_convergence_monitor(main_sim_folder, window_size, tolerance, check_interval):
+def run_convergence_monitor(main_sim_folder, window_time, tolerance, check_interval):
    
     """
     A single function to monitor an OpenFOAM simulation and stop it once converged.
@@ -19,7 +19,7 @@ def run_convergence_monitor(main_sim_folder, window_size, tolerance, check_inter
     force_file = os.path.join(main_sim_folder, "postProcessing", "forcesBlades", "0", "forces.dat")
     control_dict = os.path.join(main_sim_folder, "system", "controlDict")
 
-    print(f"--- Monitoring Started for: {main_sim_folder} ---")
+    print(f"Monitoring Started for: {main_sim_folder}")
 
     # The Monitoring Loop
     while True:
@@ -31,13 +31,41 @@ def run_convergence_monitor(main_sim_folder, window_size, tolerance, check_inter
                 with open(force_file, 'r', encoding='utf-8', errors='ignore') as f:
                     # Filter comments and empty lines
                     data_lines = [l.strip() for l in f if l.strip() and not l.strip().startswith('#')]
+
+                    if data_lines:
+                        latest_line = data_lines[-1]
+                        latest_parts = latest_line.replace('(', ' ').replace(')', ' ').split()
+                        latest_time = float(latest_parts[0])
+
+                        N = 0
+
+                        # walk backwards and count
+                        for line in reversed(data_lines):
+                            parts = line.replace('(', ' ').replace(')', ' ').split()
+                            t = float(parts[0])
+                            
+                            if latest_time - t <= window_time:
+                                N += 1
+                            else:
+                                break
+
+                        print(f"Current window size N = {N}")
+
+                        if N == 0:
+                            print("WARNING: N = 0, skipping this iteration")
+                            continue
+
+
                 
-                if len(data_lines) >= window_size:
+                if latest_time >= window_time:
                     recent_thrust = []
                     latest_sim_time = 0.0
+
+
+
                     
                     # Parse the last N lines
-                    for line in data_lines[-window_size:]:
+                    for line in data_lines[-N:]:
                         parts = line.replace('(', ' ').replace(')', ' ').split()
                         latest_sim_time = float(parts[0])
                         thrust_y = float(parts[2]) # Pressure Force Y
@@ -66,7 +94,7 @@ def run_convergence_monitor(main_sim_folder, window_size, tolerance, check_inter
                         return True # Exit the function entirely
 
                 else:
-                    print(f"Waiting for data: {len(data_lines)}/{window_size} lines...")
+                    print(f"Waiting for data: {latest_time:.4f}/{window_time}s")
 
             except Exception as e:
                 print(f"Error during monitoring: {e}")

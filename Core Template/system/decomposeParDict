@@ -14,7 +14,10 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-numberOfSubdomains 24;
+#include "../parameters.cpp"
+
+numberOfSubdomains   $cores_to_use;
+//numberOfSubdomains 24;
 
 method          scotch;
 

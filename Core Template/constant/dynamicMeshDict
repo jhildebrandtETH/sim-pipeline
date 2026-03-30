@@ -11,7 +11,7 @@ FoamFile
     object      dynamicMeshDict;
 }
 
-//#include "../parameters"
+#include "../parameters"
 
 
 mover
@@ -36,8 +36,7 @@ mover
                 {
                     origin  (0 0 0);
                     axis    (0 1 0);
-                    //omega   $omega_val;
-                    omega 733.13;
+                    omega   $omega_val;
                 }
             }
         }

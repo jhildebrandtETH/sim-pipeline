@@ -5,7 +5,7 @@ from convergence_tools import run_convergence_monitor
 
 convergence_check_interval = 5
 
-def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, convergence_window_size):
+def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions ):
 
     # Docker client is setup here, interface volume mapping is defined, container is created:
 
@@ -34,7 +34,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     # Running the different openFOAM simulation commands (if Output is wanted, uncomment for line in result paragraph and comment for _ in result.output):
 
-    blockMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && blockMesh'"
+    blockMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && blockMesh > log.blockMesh'"
 
     print("BlockMesh started...")
 
@@ -48,7 +48,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("blockMesh finished...")
 
-    surfaceFeatures_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && surfaceFeatures'"
+    surfaceFeatures_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && surfaceFeatures > log.surfaceFeatures'"
 
     print("surfaceFeatures started...")
 
@@ -62,7 +62,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("surfaceFeatures finished...")
 
-    snappyHexMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && snappyHexMesh -overwrite'"
+    snappyHexMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && snappyHexMesh > log.snappyHexMesh'"
 
     print("snappyHexMesh started...")
 
@@ -76,7 +76,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("snappyHexMesh finsished...")
 
-    checkMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && checkMesh'"
+    checkMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && checkMesh | tee log.checkMesh'"
 
 
     result = container.exec_run(checkMesh_cmd, stream=True)
@@ -84,12 +84,12 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
     for line in result.output:
        print(line.decode('utf-8').strip())
 
-    """
-    createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave'"
+    #"""
+    createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave > log.createNonConformalCouples'"
 
     print("createNonConformalCouples started...")
 
-    result = container.exec_run(checkMesh_cmd, stream=True)
+    result = container.exec_run(createNonConformalCouples_cmd, stream=True)
 
     #for line in result.output:
     #   print(line.decode('utf-8').strip())
@@ -99,7 +99,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("createNonConformalCouples finished...")
 
-    decomposePar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && decomposePar'"
+    decomposePar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && decomposePar > log.decomposePar'"
 
     print("decomposePar started...")
 
@@ -117,12 +117,14 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     # Launch convergenceStop script in parallel (threading)
 
+    convergence_window_time = (1/(rpm_count/60))*convergence_window_revolutions
+
     monitor_thread = threading.Thread(
         target=run_convergence_monitor,
         kwargs={
             'main_sim_folder': simulation_working_directory, 
             'tolerance': convergence_tolerance, 
-            'window_size': convergence_window_size,
+            'window_time': convergence_window_time,
             'check_interval': convergence_check_interval
         }
     )
@@ -158,7 +160,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
         print("NOTICE: Simulation finished normally (reached original endTime).")
 
 
-    reconstructPar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && reconstructPar'"
+    reconstructPar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && reconstructPar > log.reconstructPar'"
 
     print("reconstructPar started...")
 
@@ -172,7 +174,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("reconstructPar finsished...")
 
-    """
+    #"""
 
     # Create .FOAM file
 
@@ -197,5 +199,3 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
     container.remove()
 
     print("Cleanup complete. System ready for the next simulation.")
-
-#openfoamSimulation("MaxMustermann", r"C:\Users\jonas\Downloads\propellerSimulationDemo-main (1)\propellerSimulationDemo-main\10X7E\RPM7000\kEpsilon", 1000, 20)
