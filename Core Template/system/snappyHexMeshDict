@@ -10,7 +10,7 @@ FoamFile
 // Which of the steps to run
 castellatedMesh true;
 snap            true;
-addLayers       false;
+addLayers       true;
 
 
 // Geometry. Definition of all surfaces. All surfaces are of class
@@ -100,7 +100,7 @@ castellatedMeshControls
     // Number of buffer layers between different levels.
     // 1 means normal 2:1 refinement restriction, larger means slower
     // refinement.
-    nCellsBetweenLevels 3;
+    nCellsBetweenLevels 2; //3
 
 
 
@@ -137,7 +137,7 @@ castellatedMeshControls
     {
         innerCylinder
         {
-            level       (3 3);
+            level       (3 3); // (3 3)
          
             faceType    boundary;
             cellZone    innerCylinder;
@@ -146,7 +146,7 @@ castellatedMeshControls
         }
         propellerTip
         {
-            level       (4 5);
+            level       (5 5); // (4 5)
         }
     }
 
@@ -174,14 +174,20 @@ castellatedMeshControls
             mode        inside;
             levels      ((1E15 2));
         }
+        //innerCylinder
+        //{
+            //mode distance;
+            //levels
+            //(
+            //(0.005 3)   // keep near-interface at level 3
+            //(0.030 2)   // transition to level 2
+            //);
+        //}
+
         innerCylinder
         {
-            mode distance;
-            levels
-            (
-            (0.005 3)   // keep near-interface at level 3
-            (0.030 2)   // transition to level 2
-            );
+            mode        inside;
+            levels      ((1E15 3));
         }
 
         //}
@@ -190,9 +196,9 @@ castellatedMeshControls
             mode distance;
             levels
             (
-                (0.002 5) 
-                (0.010 4)  
-                (0.050 3)  
+                (0.002 5) // 0.002 5
+                (0.010 4)  // 0.010 4
+                //(0.015 2)  // 0.050 3
             );
         }
     }
@@ -262,14 +268,14 @@ addLayersControls
 
     layers
     {
-        propeller
+        propellerTip
         {
-            nSurfaceLayers 6;
+            nSurfaceLayers 2;
         }
     }
 
     expansionRatio      1.15;
-    firstLayerThickness 0.006;  // 0.22 mm calculated
+    firstLayerThickness 0.00022;  // 0.22 mm calculated
     // optional:
     // thickness        0.003;     // ~3 mm total, if you want to cap it
 
@@ -283,11 +289,11 @@ addLayersControls
     nSmoothNormals        3;
     nSmoothThickness      10;
 
-    maxFaceThicknessRatio     0.5;
-    maxThicknessToMedialRatio 0.3;
+    maxFaceThicknessRatio     0.7;
+    maxThicknessToMedialRatio 0.5;
     minMedialAxisAngle        90;
 
-    nLayerIter           50;
+    nLayerIter           100;
     nBufferCellsNoExtrude 0;
 }
 

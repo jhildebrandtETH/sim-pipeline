@@ -11,14 +11,13 @@ from openfoamSimulation import openfoamSimulation
 requested_geometries_array = ["10x5E", "10x7E", "10x8E", "11x7E", "11x8E", "9x6E", "9x9E"] # 8xX series make problems with STL generation!
 requested_geometries_array = ["10x7E"] # 8xX series make problems with STL generation!
 
-
-requested_RPMS = [1000]
+requested_RPMS = [7000]
 
 pipeline_main_directory = r"C:\Users\jonas\OneDrive\ETH\FS2026\Semester Project\GITHUB\Repository\sim-pipeline"
 
 simulations_directory = r"C:\Users\jonas\Downloads\SimulationSpace"
 
-convergence_monitoring_revolutions_count = 3
+convergence_monitoring_revolutions_count = 1000
 
 convergence_tolerance = 1e-3
 
@@ -31,7 +30,9 @@ cores_to_use = 24
 all_combinations = list(itertools.product(requested_geometries_array, requested_RPMS))
 
 
-# Example: Printing the results
+# Example: Printing the results 
+
+
 
 
 # Create all subfolders in simulations_directory with the name PE0_NAME@RPM_COUNT
@@ -42,7 +43,7 @@ for geometry, rpm in all_combinations:
     path.mkdir(parents=True, exist_ok=True)
 
 print("Cases and Subfolders created...")
-
+ 
 # Preprocessing
 for geometry, rpm in all_combinations:
 

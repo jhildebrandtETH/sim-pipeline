@@ -84,7 +84,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
     for line in result.output:
        print(line.decode('utf-8').strip())
 
-    #"""
+    """
     createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave > log.createNonConformalCouples'"
 
     print("createNonConformalCouples started...")
@@ -117,14 +117,15 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     # Launch convergenceStop script in parallel (threading)
 
-    convergence_window_time = (1/(rpm_count/60))*convergence_window_revolutions
+    #convergence_window_time = (1/(rpm_count/60))*convergence_window_revolutions
 
     monitor_thread = threading.Thread(
         target=run_convergence_monitor,
         kwargs={
             'main_sim_folder': simulation_working_directory, 
-            'tolerance': convergence_tolerance, 
-            'window_time': convergence_window_time,
+            'rpm':rpm_count,
+            'avg_history_count': convergence_window_revolutions,
+            'tolerance': convergence_tolerance,
             'check_interval': convergence_check_interval
         }
     )
