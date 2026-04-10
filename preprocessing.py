@@ -3,8 +3,6 @@
 import shutil
 import os
 import math
-from PropGeom.main import generateSTL
-
 interpolation_points = 100
 
 
@@ -38,7 +36,7 @@ def update_parameters(file_path, target_var, new_value):
 #update_parameters(r"C:\Users\jonas\OneDrive\ETH\FS2026\Semester Project\GITHUB\Repository\sim-pipeline\Core Template\parameters.cpp", 'omega_val', 850.50)
 
 
-def preprocessing(PE0_NAME, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE):
+def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE):
 
  
     #1. duplicate Core Template to target directory
@@ -63,9 +61,11 @@ def preprocessing(PE0_NAME, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
     #4. generate STL file from requestes described geometry (other function)
 
 
-    target_stl_path = os.path.join(TARGET_DIRECTORY, "constant", "triSurface")
+    target_stl_path = os.path.join(TARGET_DIRECTORY, "constant", "triSurface", "propellerTip.stl")
 
-    generateSTL(PE0_NAME, MAIN_DIRECTORY, target_stl_path, interpolation_points)
+    #generateSTL(PE0_NAME, MAIN_DIRECTORY, target_stl_path, interpolation_points)
+
+    shutil.copy(STL_PATH, target_stl_path)
  
 
 

@@ -3,7 +3,7 @@ import threading
 from convergence_tools import run_convergence_monitor
 
 
-convergence_check_interval = 5
+convergence_check_interval = 1
 
 def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions ):
 
@@ -84,7 +84,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
     for line in result.output:
        print(line.decode('utf-8').strip())
 
-    """
+    #"""
     createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave > log.createNonConformalCouples'"
 
     print("createNonConformalCouples started...")

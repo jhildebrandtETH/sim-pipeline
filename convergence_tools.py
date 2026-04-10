@@ -171,7 +171,6 @@ def run_convergence_monitor(
                     f"Current 1-rev Avg Thrust: {current_avg_thrust:.4f} | "
                     f"Stored Avg History: [{hist_str}] | "
                     f"Waiting for enough averaged values: "
-                    f"{len(avg_thrust_history)}/{avg_history_count} | "
                     f"Avg y+: {avg_yplus:.2f} | "
                     f"Max y+: {max_yplus:.2f} | "
                     f"Min y+: {min_yplus:.2f}"
@@ -189,7 +188,6 @@ def run_convergence_monitor(
             print(
                 f"Time: {latest_sim_time:.4f} | "
                 f"Current 1-rev Avg Thrust: {current_avg_thrust:.4f} | "
-                f"Avg History: [{hist_str}] | "
                 f"Avg Thrust: {avg_val:.4f} | "
                 f"StdDev(rolling 1-rev avgs): {std_dev:.6f} | "
                 f"Avg y+: {avg_yplus:.2f} | "

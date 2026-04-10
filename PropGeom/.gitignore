@@ -1,3 +1,0 @@
-﻿
-# Exclude compiled Python files and the cache directory
-__pycache__/*.pyc

@@ -10,7 +10,7 @@ FoamFile
 // Which of the steps to run
 castellatedMesh true;
 snap            true;
-addLayers       true;
+addLayers       false;
 
 
 // Geometry. Definition of all surfaces. All surfaces are of class
@@ -174,21 +174,22 @@ castellatedMeshControls
             mode        inside;
             levels      ((1E15 2));
         }
-        //innerCylinder
-        //{
-            //mode distance;
-            //levels
-            //(
-            //(0.005 3)   // keep near-interface at level 3
-            //(0.030 2)   // transition to level 2
-            //);
-        //}
 
         innerCylinder
         {
-            mode        inside;
-            levels      ((1E15 3));
+            mode distance;
+            levels
+            (
+            //(0.010 4)   // keep near-interface at level 3
+            (0.020 3)   // transition to level 2
+            );
         }
+
+        //innerCylinder
+        //{
+          //  mode        inside;
+            //levels      ((1E15 3));
+        //}
 
         //}
         propellerTip
@@ -198,7 +199,7 @@ castellatedMeshControls
             (
                 (0.002 5) // 0.002 5
                 (0.010 4)  // 0.010 4
-                //(0.015 2)  // 0.050 3
+                (0.030 3)  // 0.050 3
             );
         }
     }
