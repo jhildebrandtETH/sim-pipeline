@@ -117,7 +117,7 @@ def plot_yplus_classes(yplus_file, patch_name="propellerTip", show_percent=True)
     }
 
 
-result = plot_yplus_classes(r"C:\Users\jonas\Downloads\SimulationSpace\10x7E@7000\0.0444479\yPlus", patch_name="propellerTip", show_percent=True)
+result = plot_yplus_classes(r"C:\Users\jonas\Downloads\SimulationSpace\11x8E@7000\0.0571013\yPlus", patch_name="propellerTip", show_percent=True)
 
 
 print(result["percentages"])

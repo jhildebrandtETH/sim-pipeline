@@ -5,7 +5,7 @@ from convergence_tools import run_convergence_monitor
 
 convergence_check_interval = 1
 
-def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions ):
+def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE ):
 
     # Docker client is setup here, interface volume mapping is defined, container is created:
 
@@ -85,19 +85,23 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
        print(line.decode('utf-8').strip())
 
     #"""
-    createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave > log.createNonConformalCouples'"
 
-    print("createNonConformalCouples started...")
+    if MODE == "AMI":
 
-    result = container.exec_run(createNonConformalCouples_cmd, stream=True)
+        createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave > log.createNonConformalCouples'"
 
-    #for line in result.output:
-    #   print(line.decode('utf-8').strip())
+        print("createNonConformalCouples started...")
 
-    for _ in result.output:
-        pass
+        result = container.exec_run(createNonConformalCouples_cmd, stream=True)
 
-    print("createNonConformalCouples finished...")
+        #for line in result.output:
+        #   print(line.decode('utf-8').strip())
+
+        for _ in result.output:
+            pass
+
+        print("createNonConformalCouples finished...")
+
 
     decomposePar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && decomposePar > log.decomposePar'"
 

@@ -1,7 +1,163 @@
 import os
 import time
 import numpy as np
+import pandas as pd
 import re
+
+
+import numpy as np
+import pandas as pd
+
+
+def check_residuals(
+    residuals_file,
+    revolution_time,
+    use_log=True,
+    min_points=10,
+):
+    """
+    Returns True if all residuals satisfy slope criteria over the last revolution.
+
+    The fitted regression slope is converted from "per second" to
+    "per revolution" by multiplying with revolution_time.
+
+    If use_log=True, the checked quantity is the change in log10(residual)
+    over one revolution.
+    """
+
+    # SETTINGS
+    # Bounds are now interpreted as slope/change OVER ONE REVOLUTION
+    slope_bounds = {
+        "p":  (-5e-2, 1e-2),
+        "Ux": (-5e-2, 5e-3),
+        "Uy": (-5e-2, 5e-3),
+        "Uz": (-5e-2, 5e-3),
+        "k":  (-5e-2, 5e-3),
+    }
+
+    # Read header explicitly from second line
+    with open(residuals_file, "r") as f:
+        lines = f.readlines()
+
+    if len(lines) < 3:
+        raise ValueError("Residual file is too short.")
+
+    header = lines[1].lstrip("#").strip().split()
+
+    df = pd.read_csv(
+        residuals_file,
+        sep=r"\s+",
+        names=header,
+        skiprows=2,
+        na_values=["N/A"],
+        engine="python",
+    )
+
+    if "Time" not in df.columns:
+        raise ValueError("Residual file must contain a 'Time' column.")
+
+    df = df.dropna(subset=["Time"]).sort_values("Time")
+
+    if df.empty:
+        raise ValueError("Residual file contains no valid data.")
+
+    latest_time = df["Time"].iloc[-1]
+
+    if latest_time <= revolution_time:
+        print("Failed: not enough data for one full revolution.")
+        return False
+
+    # Last revolution window
+    t_start = latest_time - revolution_time
+    window_df = df[df["Time"] >= t_start].copy()
+
+    if window_df.empty:
+        print("Failed: no data in last revolution window.")
+        return False
+
+    failed_fields = []
+
+    for field, bounds in slope_bounds.items():
+
+        if field not in window_df.columns:
+            failed_fields.append(field)
+            continue
+
+        if not isinstance(bounds, (tuple, list)) or len(bounds) != 2:
+            raise ValueError(
+                f"Bounds for '{field}' must be (lower_bound, upper_bound)."
+            )
+
+        lower_bound, upper_bound = bounds
+
+        data = window_df[["Time", field]].dropna()
+
+        if len(data) < min_points:
+            failed_fields.append(field)
+            continue
+
+        t = data["Time"].to_numpy(dtype=float)
+        y = data[field].to_numpy(dtype=float)
+
+        if use_log:
+            mask = y > 0.0
+            t = t[mask]
+            y = y[mask]
+
+            if len(y) < min_points:
+                failed_fields.append(field)
+                continue
+
+            y = np.log10(y)
+
+        slope_per_second, _ = np.polyfit(t, y, 1)
+        slope_per_revolution = slope_per_second * revolution_time
+
+        if not (lower_bound <= slope_per_revolution <= upper_bound):
+            failed_fields.append(field)
+
+    # DEBUGGING ONLY
+    print("\n--- Residual slopes per revolution (debug) ---")
+
+    for field in slope_bounds.keys():
+
+        if field not in window_df.columns:
+            print(f"{field}: not found")
+            continue
+
+        data = window_df[["Time", field]].dropna()
+
+        if len(data) < min_points:
+            print(f"{field}: not enough data")
+            continue
+
+        t = data["Time"].to_numpy(dtype=float)
+        y = data[field].to_numpy(dtype=float)
+
+        if use_log:
+            mask = y > 0.0
+            t = t[mask]
+            y = y[mask]
+
+            if len(y) < min_points:
+                print(f"{field}: not enough valid data after log filter")
+                continue
+
+            y = np.log10(y)
+
+        slope_per_second, _ = np.polyfit(t, y, 1)
+        slope_per_revolution = slope_per_second * revolution_time
+
+        print(f"{field}: slope per revolution = {slope_per_revolution:.3e}")
+
+    # END OF DEBUGGING
+
+    if len(failed_fields) == 0:
+        print("Passed: all residual slope checks satisfied.")
+        return True
+    else:
+        print(f"Failed: residual slope check failed for {failed_fields}.")
+        return False
 
 
 def run_convergence_monitor(
@@ -39,6 +195,11 @@ def run_convergence_monitor(
     yplus_file = os.path.join(
         main_sim_folder, "postProcessing", "yPlus", "0", "yPlus.dat"
     )
+
+    residuals_file = os.path.join(
+        main_sim_folder, "postProcessing", "residuals", "0", "residuals.dat"
+    )
+
     control_dict = os.path.join(main_sim_folder, "system", "controlDict")
 
     rev_time = 60.0 / rpm
@@ -46,10 +207,10 @@ def run_convergence_monitor(
     # History of rolling one-revolution averaged thrust values
     avg_thrust_history = []
 
-    print(f"Monitoring Started for: {main_sim_folder}")
+    #print(f"Monitoring Started for: {main_sim_folder}")
     print(f"RPM: {rpm}")
     print(f"One revolution time: {rev_time:.6f} s")
-    print(f"History length for convergence check: {avg_history_count}")
+    #print(f"History length for convergence check: {avg_history_count}")
 
     while True:
         try:
@@ -169,8 +330,7 @@ def run_convergence_monitor(
                 print(
                     f"Time: {latest_sim_time:.4f} | "
                     f"Current 1-rev Avg Thrust: {current_avg_thrust:.4f} | "
-                    f"Stored Avg History: [{hist_str}] | "
-                    f"Waiting for enough averaged values: "
+                    f"Waiting for enough averaged values: {len(avg_thrust_history)} / {avg_history_count}"
                     f"Avg y+: {avg_yplus:.2f} | "
                     f"Max y+: {max_yplus:.2f} | "
                     f"Min y+: {min_yplus:.2f}"
@@ -198,8 +358,8 @@ def run_convergence_monitor(
             # ----------------------------
             # Stop logic
             # ----------------------------
-            if std_dev < tolerance:
-                print(f"\n>>> CONVERGENCE REACHED AT {latest_sim_time}s <<<")
+            if std_dev < tolerance and check_residuals(residuals_file, rev_time):
+                print(f"\n>>> SUFFICIENT CONVERGENCE REACHED AT {latest_sim_time}s <<<")
 
                 if not os.path.exists(control_dict):
                     print(f"ERROR: controlDict not found at: {control_dict}")
@@ -222,3 +382,5 @@ def run_convergence_monitor(
             print(f"Error during monitoring: {e}")
 
         time.sleep(check_interval)
+
+#check_residuals(r"C:\Users\jonas\Downloads\SimulationSpace\11x8E@7000\postProcessing\residuals\0\residuals.dat", 0.0086)

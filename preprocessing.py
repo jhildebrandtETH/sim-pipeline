@@ -36,26 +36,50 @@ def update_parameters(file_path, target_var, new_value):
 #update_parameters(r"C:\Users\jonas\OneDrive\ETH\FS2026\Semester Project\GITHUB\Repository\sim-pipeline\Core Template\parameters.cpp", 'omega_val', 850.50)
 
 
-def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE):
+def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE, MODE):
 
  
-    #1. duplicate Core Template to target directory
+    #1. duplicate right Core Template to target directory (AMI or RMF approach)
 
-    core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template")
+    if MODE == "MRF":
+
+        core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template MRF")
+    
+    elif MODE == "AMI":
+
+        core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template AMI")
+
+    else:
+        print("Unknown mode was passed to the pipeline...")
+        return None
+
 
     shutil.copytree(core_template_directory, TARGET_DIRECTORY, dirs_exist_ok=True)
+    
+    # copy parameters folder to case folder
+
+    parameters_path_main = os.path.join(MAIN_DIRECTORY, 'Parameters')
+
+    shutil.copytree(parameters_path_main, os.path.join(TARGET_DIRECTORY, 'Parameters'))
+
+    #
+
 
     #2. know about what simulation we are talking about (geometry facts & RPM)
     
 
     #3. adapt all exisiting parameters based on certain rules
 
-    parameters_file_path = os.path.join(TARGET_DIRECTORY, 'parameters.cpp')
+    rotational_parameters_file_path = os.path.join(TARGET_DIRECTORY, 'Parameters', 'rotational_parameters.cpp')
 
     omega = RPM_COUNT * 2 * math.pi / 60
 
-    update_parameters(parameters_file_path, 'omega_val', omega)
-    update_parameters(parameters_file_path, 'cores_to_use', CORES_TO_USE)
+    update_parameters(rotational_parameters_file_path, 'omega_val', omega)
+
+
+    decomposeParDict_parameters_file_path = os.path.join(TARGET_DIRECTORY, 'Parameters', 'decomposeParDict_parameters.cpp')
+
+    update_parameters(decomposeParDict_parameters_file_path, 'numberOfSubdomains', CORES_TO_USE)
 
 
     #4. generate STL file from requestes described geometry (other function)
@@ -73,6 +97,8 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
     #5. deal with all the other geometry related stuff like nonConformalCouples...
 
     #6. provide all prepared folder bundle to the desired location
+
+    
 
     return None
 

@@ -37,6 +37,14 @@ def main() -> None:
         help="List of RPM values (e.g. 6000 7000)",
     )
 
+    parser.add_argument(
+        "--mode",
+        type=str,
+        required=True,
+        choices=["AMI", "MRF"],
+        help="Choose rotational approach (AMI or MRF)",
+    )
+
     args = parser.parse_args()
 
     simulations_directory = args.sim_dir.resolve()
@@ -66,21 +74,23 @@ def main() -> None:
         print(f"\n--- Running case: {geometry} @ {rpm} RPM ---")
 
         preprocessing(
-            stl_path,
-            rpm,
-            pipeline_main_directory,
-            simulation_path,
-            cores_to_use,
+            STL_PATH=stl_path,
+            RPM_COUNT=rpm,
+            MAIN_DIRECTORY=pipeline_main_directory,
+            TARGET_DIRECTORY=simulation_path,
+            CORES_TO_USE=cores_to_use,
+            MODE=args.mode
         )
 
         simulation_name = f"{geometry}_{rpm}RPM"
 
         openfoamSimulation(
-            simulation_name,
-            simulation_path,
-            convergence_tolerance,
-            rpm,
-            convergence_monitoring_revolutions_count,
+            simulation_name=simulation_name,
+            simulation_working_directory=simulation_path,
+            convergence_tolerance=convergence_tolerance,
+            rpm_count=rpm,
+            convergence_window_revolutions=convergence_monitoring_revolutions_count,
+            MODE=args.mode
         )
 
     print("\nAll simulations completed.")
