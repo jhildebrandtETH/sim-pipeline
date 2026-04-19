@@ -1,6 +1,9 @@
 import docker
+import os
+from pathlib import Path
 import threading
-from convergence_tools import run_convergence_monitor
+from tools import run_convergence_monitor
+from tools import is_mesh_ok
 
 
 convergence_check_interval = 1
@@ -36,7 +39,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     blockMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && blockMesh > log.blockMesh'"
 
-    print("BlockMesh started...")
+    print("blockMesh started...")
 
     result = container.exec_run(blockMesh_cmd, stream=True)
 
@@ -78,21 +81,42 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     checkMesh_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && checkMesh | tee log.checkMesh'"
 
+    
+
 
     result = container.exec_run(checkMesh_cmd, stream=True)
 
     for line in result.output:
-       print(line.decode('utf-8').strip())
+        print(line.decode('utf-8').strip())
 
     #"""
 
-    if MODE == "AMI":
+    checkMesh_log_path = os.path.join(simulation_working_directory, 'log.checkMesh')
 
-        createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave > log.createNonConformalCouples'"
+    if is_mesh_ok(Path(checkMesh_log_path)):
 
-        print("createNonConformalCouples started...")
+        if MODE == "AMI":
 
-        result = container.exec_run(createNonConformalCouples_cmd, stream=True)
+            createNonConformalCouples_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && createNonConformalCouples innerCylinder innerCylinder_slave > log.createNonConformalCouples'"
+
+            print("createNonConformalCouples started...")
+
+            result = container.exec_run(createNonConformalCouples_cmd, stream=True)
+
+            #for line in result.output:
+            #   print(line.decode('utf-8').strip())
+
+            for _ in result.output:
+                pass
+
+            print("createNonConformalCouples finished...")
+
+
+        decomposePar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && decomposePar > log.decomposePar'"
+
+        print("decomposePar started...")
+
+        result = container.exec_run(decomposePar_cmd, stream=True)
 
         #for line in result.output:
         #   print(line.decode('utf-8').strip())
@@ -100,86 +124,73 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
         for _ in result.output:
             pass
 
-        print("createNonConformalCouples finished...")
-
-
-    decomposePar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && decomposePar > log.decomposePar'"
-
-    print("decomposePar started...")
-
-    result = container.exec_run(decomposePar_cmd, stream=True)
-
-    #for line in result.output:
-    #   print(line.decode('utf-8').strip())
-
-    for _ in result.output:
-        pass
-
-    print("decomposePar finished...")
+        print("decomposePar finished...")
 
 
 
-    # Launch convergenceStop script in parallel (threading)
+        # Launch convergenceStop script in parallel (threading)
 
-    #convergence_window_time = (1/(rpm_count/60))*convergence_window_revolutions
+        #convergence_window_time = (1/(rpm_count/60))*convergence_window_revolutions
 
-    monitor_thread = threading.Thread(
-        target=run_convergence_monitor,
-        kwargs={
-            'main_sim_folder': simulation_working_directory, 
-            'rpm':rpm_count,
-            'avg_history_count': convergence_window_revolutions,
-            'tolerance': convergence_tolerance,
-            'check_interval': convergence_check_interval
-        }
-    )
+        monitor_thread = threading.Thread(
+            target=run_convergence_monitor,
+            kwargs={
+                'main_sim_folder': simulation_working_directory, 
+                'rpm':rpm_count,
+                'avg_history_count': convergence_window_revolutions,
+                'tolerance': convergence_tolerance,
+                'check_interval': convergence_check_interval
+            }
+        )
 
-    # Setting daemon=True ensures the monitor dies if the main script crashes
-    monitor_thread.daemon = True 
+        # Setting daemon=True ensures the monitor dies if the main script crashes
+        monitor_thread.daemon = True 
 
-    # Starting convergence monitoring
-    print("Launching Background Convergence Monitor...")
-    monitor_thread.start()
+        # Starting convergence monitoring
+        print("Launching Background Convergence Monitor...")
+        monitor_thread.start()
 
-    # Starting the actual solving process
+        # Starting the actual solving process
 
-    simRun_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && mpirun --allow-run-as-root --use-hwthread-cpus -np 24 foamRun -solver incompressibleFluid -parallel | tee log.pimpleFoam'"
+        simRun_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && mpirun --allow-run-as-root --use-hwthread-cpus -np 24 foamRun -solver incompressibleFluid -parallel | tee log.pimpleFoam'"
 
-    print("pimpleFoamSolver started...")
+        print("pimpleFoamSolver started...")
 
-    result = container.exec_run(simRun_cmd, stream=True)
+        result = container.exec_run(simRun_cmd, stream=True)
 
 
-    #for line in result.output:
-    #   print(line.decode('utf-8').strip())
+        #for line in result.output:
+        #   print(line.decode('utf-8').strip())
 
-    for _ in result.output:
-        pass
+        for _ in result.output:
+            pass
 
-    # The solver has now exited. 
-    # If the monitor thread is NO LONGER alive, it means it found convergence and returned True.
+        # The solver has now exited. 
+        # If the monitor thread is NO LONGER alive, it means it found convergence and returned True.
 
-    if not monitor_thread.is_alive():
-        print("SUCCESS: Simulation stopped early due to convergence.")
+        if not monitor_thread.is_alive():
+            print("SUCCESS: Simulation stopped early due to convergence.")
+        else:
+            print("NOTICE: Simulation finished normally (reached original endTime).")
+
+
+        reconstructPar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && reconstructPar > log.reconstructPar'"
+
+        print("reconstructPar started...")
+
+        result = container.exec_run(reconstructPar_cmd, stream=True)
+
+        #for line in result.output:
+        #   print(line.decode('utf-8').strip())
+
+        for _ in result.output:
+            pass
+
+        print("reconstructPar finsished...")
+
+        #"""
     else:
-        print("NOTICE: Simulation finished normally (reached original endTime).")
-
-
-    reconstructPar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && reconstructPar > log.reconstructPar'"
-
-    print("reconstructPar started...")
-
-    result = container.exec_run(reconstructPar_cmd, stream=True)
-
-    #for line in result.output:
-    #   print(line.decode('utf-8').strip())
-
-    for _ in result.output:
-        pass
-
-    print("reconstructPar finsished...")
-
-    #"""
+        print("Mesh is not OK... stopping this case")
 
     # Create .FOAM file
 
@@ -193,7 +204,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("FOAM File created...")
 
-    
+        
 
     # Stop and Remove active simulation container
 
@@ -204,3 +215,4 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
     container.remove()
 
     print("Cleanup complete. System ready for the next simulation.")
+    

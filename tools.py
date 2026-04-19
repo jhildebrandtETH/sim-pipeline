@@ -8,6 +8,19 @@ import re
 import numpy as np
 import pandas as pd
 
+def is_mesh_ok(log_path):
+    """
+    Returns True if 'Mesh OK' is found in log.checkMesh, else False.
+    """
+
+    if not log_path.exists():
+        print("Coudn't confirm mesh is OK because of path error...")
+        return False
+
+    log_text = log_path.read_text(errors="ignore")
+
+    return "Mesh OK" in log_text
+
 
 def check_residuals(
     residuals_file,
