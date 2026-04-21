@@ -8,7 +8,7 @@ from tools import is_mesh_ok
 
 convergence_check_interval = 1
 
-def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE ):
+def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE, initialize_from_previous=False, previous_simulation_path=None):
 
     # Docker client is setup here, interface volume mapping is defined, container is created:
 
@@ -111,6 +111,23 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
             print("createNonConformalCouples finished...")
 
+        
+        if initialize_from_previous:
+            print(f"Initializing from previous case: {previous_simulation_path}")
+
+
+            mapFields_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && mapFields /simulation/init/ -consistent -sourceTime latestTime  > log.mapFields'"
+
+            print("mapFields started...")
+
+            result = container.exec_run(mapFields_cmd, stream=True)
+
+            for _ in result.output:
+                pass
+
+            print("mapFields finished...")
+
+
 
         decomposePar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && decomposePar > log.decomposePar'"
 
@@ -188,9 +205,11 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
         print("reconstructPar finsished...")
 
-        #"""
+        
     else:
         print("Mesh is not OK... stopping this case")
+
+        #"""
 
     # Create .FOAM file
 

@@ -1,6 +1,7 @@
 import argparse
 import itertools
 from pathlib import Path
+import os
 
 from preprocessing import preprocessing
 from openfoamSimulation import openfoamSimulation
@@ -45,6 +46,14 @@ def main() -> None:
         help="Choose rotational approach (AMI or MRF)",
     )
 
+    parser.add_argument(
+        "--field-init",
+        type=str,
+        default="on",
+        choices=["on", "off"],
+        help="Choose if flow initialization should be used. Optional. Default: on",
+    )
+
     args = parser.parse_args()
 
     simulations_directory = args.sim_dir.resolve()
@@ -58,40 +67,50 @@ def main() -> None:
     convergence_tolerance = 1e-3
     cores_to_use = 24
 
-    # -------- COMBINATIONS --------
-    all_combinations = list(
-        itertools.product(requested_geometries_array, requested_RPMS)
-    )
-
     # -------- PIPELINE --------
-    for geometry, rpm in all_combinations:
-        folder_name = f"{geometry}@{rpm}"
-        simulation_path = simulations_directory / folder_name
-        simulation_path.mkdir(parents=True, exist_ok=True)
+    for geometry in requested_geometries_array:
+        previous_simulation_path = None
 
-        stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
+        for rpm in requested_RPMS:
+            folder_name = f"{geometry}_{rpm}RPM"
+            simulation_path = simulations_directory / folder_name
+            simulation_path.mkdir(parents=True, exist_ok=True)
 
-        print(f"\n--- Running case: {geometry} @ {rpm} RPM ---")
+            stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
 
-        preprocessing(
-            STL_PATH=stl_path,
-            RPM_COUNT=rpm,
-            MAIN_DIRECTORY=pipeline_main_directory,
-            TARGET_DIRECTORY=simulation_path,
-            CORES_TO_USE=cores_to_use,
-            MODE=args.mode
-        )
+            print(f"\n--- Running case: {geometry} @ {rpm} RPM @ {args.mode} @ Field Init: {args.field_init} ---")
 
-        simulation_name = f"{geometry}_{rpm}RPM"
+            # Decide whether this case should use field initialization
+            use_previous_init = (
+                args.field_init == "on" and previous_simulation_path is not None
+            )
 
-        openfoamSimulation(
-            simulation_name=simulation_name,
-            simulation_working_directory=simulation_path,
-            convergence_tolerance=convergence_tolerance,
-            rpm_count=rpm,
-            convergence_window_revolutions=convergence_monitoring_revolutions_count,
-            MODE=args.mode
-        )
+            preprocessing(
+                STL_PATH=stl_path,
+                RPM_COUNT=rpm,
+                MAIN_DIRECTORY=pipeline_main_directory,
+                TARGET_DIRECTORY=simulation_path,
+                CORES_TO_USE=cores_to_use,
+                MODE=args.mode,
+                INIT_FROM_PREVIOUS=use_previous_init,
+                PREVIOUS_SIMULATION_PATH=previous_simulation_path
+            )
+
+            simulation_name = f"{geometry}_{rpm}RPM"
+
+            openfoamSimulation(
+                simulation_name=simulation_name,
+                simulation_working_directory=simulation_path,
+                convergence_tolerance=convergence_tolerance,
+                rpm_count=rpm,
+                convergence_window_revolutions=convergence_monitoring_revolutions_count,
+                MODE=args.mode,
+                initialize_from_previous=use_previous_init,
+                previous_simulation_path=previous_simulation_path,
+            )
+
+            # After successful run, store current case as source for next RPM of same geometry
+            previous_simulation_path = simulation_path
 
     print("\nAll simulations completed.")
 

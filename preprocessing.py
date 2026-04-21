@@ -3,6 +3,10 @@
 import shutil
 import os
 import math
+from pathlib import Path
+from tools import get_latest_timestep
+
+
 interpolation_points = 100
 
 
@@ -33,10 +37,9 @@ def update_parameters(file_path, target_var, new_value):
         print(f"Variable '{target_var}' not found in the file.")
 
 # Usage
-#update_parameters(r"C:\Users\jonas\OneDrive\ETH\FS2026\Semester Project\GITHUB\Repository\sim-pipeline\Core Template\parameters.cpp", 'omega_val', 850.50)
 
 
-def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE, MODE):
+def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE, MODE, INIT_FROM_PREVIOUS, PREVIOUS_SIMULATION_PATH):
 
  
     #1. duplicate right Core Template to target directory (AMI or RMF approach)
@@ -63,6 +66,31 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
     shutil.copytree(parameters_path_main, os.path.join(TARGET_DIRECTORY, 'Parameters'))
 
     #
+
+    ## Copy init related files to target
+
+    if INIT_FROM_PREVIOUS:
+
+        # create init folder in case
+        
+        init_path = Path(TARGET_DIRECTORY) / "init"
+        init_path.mkdir()
+
+
+        # copy relevant subfolders of previous case to new init folder to this case
+        constant_init_path = Path(PREVIOUS_SIMULATION_PATH) / "constant"
+        system_init_path = Path(PREVIOUS_SIMULATION_PATH) / "system"
+        parameters_init_path = Path(PREVIOUS_SIMULATION_PATH) / "Parameters"
+
+        # get latest Timestep that is then initialized
+        latest_time, latest_name = get_latest_timestep(PREVIOUS_SIMULATION_PATH)
+        timestep_init_path = Path(PREVIOUS_SIMULATION_PATH) / latest_name
+
+        shutil.copytree(constant_init_path, init_path / "constant")
+        shutil.copytree(system_init_path, init_path / "system")
+        shutil.copytree(parameters_init_path, init_path / "Parameters")
+        shutil.copytree(timestep_init_path, init_path / latest_name)
+    ##
 
 
     #2. know about what simulation we are talking about (geometry facts & RPM)

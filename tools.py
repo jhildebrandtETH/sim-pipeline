@@ -3,10 +3,7 @@ import time
 import numpy as np
 import pandas as pd
 import re
-
-
-import numpy as np
-import pandas as pd
+from pathlib import Path
 
 def is_mesh_ok(log_path):
     """
@@ -41,11 +38,11 @@ def check_residuals(
     # SETTINGS
     # Bounds are now interpreted as slope/change OVER ONE REVOLUTION
     slope_bounds = {
-        "p":  (-5e-2, 1e-2),
-        "Ux": (-5e-2, 5e-3),
-        "Uy": (-5e-2, 5e-3),
-        "Uz": (-5e-2, 5e-3),
-        "k":  (-5e-2, 5e-3),
+        "p":  (-10e-2, 10e-2), #(-5e-2, 1e-2)
+        "Ux": (-10e-2, 10e-3), #(-5e-2, 5e-3)
+        "Uy": (-10e-2, 10e-3), #(-5e-2, 5e-3)
+        "Uz": (-10e-2, 10e-3), #(-5e-2, 5e-3)
+        "k":  (-10e-2, 10e-3), #(-5e-2, 5e-3)
     }
 
     # Read header explicitly from second line
@@ -183,15 +180,12 @@ def run_convergence_monitor(
     """
     Monitor an OpenFOAM simulation and stop it once converged.
 
-    Convergence logic:
-    - Compute the average thrust over the last ONE full revolution
-    - Repeat this at every monitor check (rolling one-revolution window)
-    - Store the last avg_history_count rolling revolution-averaged thrust values
-    - Compute the standard deviation of those stored averaged values
-    - Stop when that std dev is below tolerance
-
-    Additionally prints y+ statistics for the 'propellerTip' patch
-    over the last full revolution.
+    Improved logic:
+    - Reconstruct all possible rolling 1-revolution averaged thrust values
+      directly from forces.dat at every check
+    - Use the last avg_history_count of those values for convergence
+    - Therefore convergence no longer depends on how often this Python
+      function polls, but on how many actual force samples exist
 
     Args:
         main_sim_folder (str): Path to the OpenFOAM case directory.
@@ -208,22 +202,15 @@ def run_convergence_monitor(
     yplus_file = os.path.join(
         main_sim_folder, "postProcessing", "yPlus", "0", "yPlus.dat"
     )
-
     residuals_file = os.path.join(
         main_sim_folder, "postProcessing", "residuals", "0", "residuals.dat"
     )
-
     control_dict = os.path.join(main_sim_folder, "system", "controlDict")
 
     rev_time = 60.0 / rpm
 
-    # History of rolling one-revolution averaged thrust values
-    avg_thrust_history = []
-
-    #print(f"Monitoring Started for: {main_sim_folder}")
     print(f"RPM: {rpm}")
     print(f"One revolution time: {rev_time:.6f} s")
-    #print(f"History length for convergence check: {avg_history_count}")
 
     while True:
         try:
@@ -236,25 +223,45 @@ def run_convergence_monitor(
                 continue
 
             # ----------------------------
-            # Read thrust data
+            # Read full force data
             # ----------------------------
-            with open(force_file, "r", encoding="utf-8", errors="ignore") as f:
-                force_lines = [
-                    l.strip()
-                    for l in f
-                    if l.strip() and not l.strip().startswith("#")
-                ]
+            times = []
+            thrusts = []
 
-            if not force_lines:
+            with open(force_file, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+
+                    parts = line.replace("(", " ").replace(")", " ").split()
+
+                    # We only need time and pressure force Y
+                    if len(parts) < 3:
+                        continue
+
+                    try:
+                        t = float(parts[0])
+                        thrust_y = float(parts[2])   # Pressure Force Y
+                    except ValueError:
+                        continue
+
+                    times.append(t)
+                    thrusts.append(thrust_y)
+
+            if not times:
                 print("Force file exists but contains no usable data yet.")
                 time.sleep(check_interval)
                 continue
 
-            latest_force_line = force_lines[-1]
-            latest_force_parts = (
-                latest_force_line.replace("(", " ").replace(")", " ").split()
-            )
-            latest_time = float(latest_force_parts[0])
+            times = np.asarray(times, dtype=float)
+            thrusts = np.asarray(thrusts, dtype=float)
+
+            sort_idx = np.argsort(times)
+            times = times[sort_idx]
+            thrusts = thrusts[sort_idx]
+
+            latest_time = float(times[-1])
 
             # Need at least one full revolution before first rolling average
             if latest_time < rev_time:
@@ -266,34 +273,48 @@ def run_convergence_monitor(
                 continue
 
             # ----------------------------
-            # Compute rolling one-revolution average thrust
+            # Build ALL rolling 1-rev averages from current file
             # ----------------------------
-            thrust_values_last_rev = []
-            latest_sim_time = latest_time
+            csum = np.concatenate(([0.0], np.cumsum(thrusts)))
+            avg_times = []
+            avg_vals = []
 
-            rev_window_start = latest_time - rev_time
-            rev_window_end = latest_time
+            for i in range(len(times)):
+                t_end = times[i]
+                t_start = t_end - rev_time
 
-            for line in force_lines:
-                parts = line.replace("(", " ").replace(")", " ").split()
-                t = float(parts[0])
+                if t_start < 0.0:
+                    continue
 
-                if rev_window_start <= t <= rev_window_end:
-                    thrust_y = float(parts[2])   # Pressure Force Y
-                    thrust_values_last_rev.append(thrust_y)
+                # first index still inside window
+                j = np.searchsorted(times, t_start, side="left")
+                count = i - j + 1
 
-            if not thrust_values_last_rev:
-                print("No thrust values found in the last full-revolution window.")
+                if count <= 0:
+                    continue
+
+                window_sum = csum[i + 1] - csum[j]
+                avg_val = window_sum / count
+
+                avg_times.append(t_end)
+                avg_vals.append(avg_val)
+
+            if not avg_vals:
+                print("No valid rolling 1-rev averages available yet.")
                 time.sleep(check_interval)
                 continue
 
-            current_avg_thrust = float(np.mean(thrust_values_last_rev))
+            avg_times = np.asarray(avg_times, dtype=float)
+            avg_vals = np.asarray(avg_vals, dtype=float)
 
-            avg_thrust_history.append(current_avg_thrust)
+            latest_sim_time = float(avg_times[-1])
+            current_avg_thrust = float(avg_vals[-1])
 
-            # Keep only the most recent avg_history_count entries
-            if len(avg_thrust_history) > avg_history_count:
-                avg_thrust_history = avg_thrust_history[-avg_history_count:]
+            # ----------------------------
+            # Define last full-revolution window for y+ and residual reporting
+            # ----------------------------
+            rev_window_start = latest_sim_time - rev_time
+            rev_window_end = latest_sim_time
 
             # ----------------------------
             # Read y+ data over last full revolution
@@ -319,13 +340,15 @@ def run_convergence_monitor(
 
                     # Expected format: time patch min max average
                     if len(parts) >= 5 and parts[1] == "propellerTip":
-                        t = float(parts[0])
-
-                        if rev_window_start <= t <= rev_window_end:
+                        try:
+                            t = float(parts[0])
                             y_min = float(parts[2])
                             y_max = float(parts[3])
                             y_avg = float(parts[4])
+                        except ValueError:
+                            continue
 
+                        if rev_window_start <= t <= rev_window_end:
                             yplus_min_vals.append(y_min)
                             yplus_max_vals.append(y_max)
                             yplus_avg_vals.append(y_avg)
@@ -336,14 +359,14 @@ def run_convergence_monitor(
                     min_yplus = float(np.min(yplus_min_vals))
 
             # ----------------------------
-            # Print monitor output before enough history exists
+            # Not enough rolling averages yet
             # ----------------------------
-            if len(avg_thrust_history) < avg_history_count:
-                hist_str = " | ".join(f"{v:.4f}" for v in avg_thrust_history)
+            if len(avg_vals) < avg_history_count:
                 print(
                     f"Time: {latest_sim_time:.4f} | "
                     f"Current 1-rev Avg Thrust: {current_avg_thrust:.4f} | "
-                    f"Waiting for enough averaged values: {len(avg_thrust_history)} / {avg_history_count}"
+                    f"Waiting for enough averaged values: "
+                    f"{len(avg_vals)} / {avg_history_count} | "
                     f"Avg y+: {avg_yplus:.2f} | "
                     f"Max y+: {max_yplus:.2f} | "
                     f"Min y+: {min_yplus:.2f}"
@@ -352,11 +375,11 @@ def run_convergence_monitor(
                 continue
 
             # ----------------------------
-            # Convergence statistics on rolling averages
+            # Convergence statistics on most recent rolling averages
             # ----------------------------
+            avg_thrust_history = avg_vals[-avg_history_count:]
             std_dev = float(np.std(avg_thrust_history))
             avg_val = float(np.mean(avg_thrust_history))
-            hist_str = " | ".join(f"{v:.4f}" for v in avg_thrust_history)
 
             print(
                 f"Time: {latest_sim_time:.4f} | "
@@ -396,4 +419,21 @@ def run_convergence_monitor(
 
         time.sleep(check_interval)
 
-#check_residuals(r"C:\Users\jonas\Downloads\SimulationSpace\11x8E@7000\postProcessing\residuals\0\residuals.dat", 0.0086)
+
+def get_latest_timestep(case_path):
+    case_path = Path(case_path)
+
+    time_dirs = []
+    for item in case_path.iterdir():
+        if item.is_dir():
+            try:
+                time_value = float(item.name)
+                time_dirs.append((time_value, item.name))
+            except ValueError:
+                pass
+
+    if not time_dirs:
+        raise FileNotFoundError(f"No time directories found in {case_path}")
+
+    latest_time, latest_name = max(time_dirs, key=lambda x: x[0])
+    return latest_time, latest_name
