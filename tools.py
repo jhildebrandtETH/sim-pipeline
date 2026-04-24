@@ -44,6 +44,7 @@ def check_residuals(
         "Uz": (-10e-2, 10e-3), #(-5e-2, 5e-3)
         "k":  (-10e-2, 10e-3), #(-5e-2, 5e-3)
     }
+    ###
 
     # Read header explicitly from second line
     with open(residuals_file, "r") as f:
@@ -437,3 +438,29 @@ def get_latest_timestep(case_path):
 
     latest_time, latest_name = max(time_dirs, key=lambda x: x[0])
     return latest_time, latest_name
+
+def update_parameter(file_path, target_var, new_value):
+    if not os.path.exists(file_path):
+        print(f"Error: {file_path} not found.")
+        return
+
+    lines = []
+    updated = False
+
+    # Read the file and modify the specific line
+    with open(file_path, 'r') as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == target_var:
+                lines.append(f"{target_var} {new_value};\n")
+                updated = True
+            else:
+                lines.append(line)
+
+    # Write the changes back to the file
+    if updated:
+        with open(file_path, 'w') as f:
+            f.writelines(lines)
+        print(f"Successfully updated {target_var} to {new_value}.")
+    else:
+        print(f"Variable '{target_var}' not found in the file.")

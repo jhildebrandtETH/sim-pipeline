@@ -5,41 +5,18 @@ import os
 import math
 from pathlib import Path
 from tools import get_latest_timestep
+from tools import update_parameter
 
 
 interpolation_points = 100
 
 
-def update_parameters(file_path, target_var, new_value):
-    if not os.path.exists(file_path):
-        print(f"Error: {file_path} not found.")
-        return
 
-    lines = []
-    updated = False
-
-    # Read the file and modify the specific line
-    with open(file_path, 'r') as f:
-        for line in f:
-            parts = line.split()
-            if len(parts) >= 2 and parts[0] == target_var:
-                lines.append(f"{target_var} {new_value};\n")
-                updated = True
-            else:
-                lines.append(line)
-
-    # Write the changes back to the file
-    if updated:
-        with open(file_path, 'w') as f:
-            f.writelines(lines)
-        print(f"Successfully updated {target_var} to {new_value}.")
-    else:
-        print(f"Variable '{target_var}' not found in the file.")
 
 # Usage
 
 
-def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE, MODE, INIT_FROM_PREVIOUS, PREVIOUS_SIMULATION_PATH):
+def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE, MODE, INIT_FROM_PREVIOUS, PREVIOUS_SIMULATION_PATH, STUDY_PARAMETER_NAME = None, STUDY_PARAMETER_FILE = None, STUDY_PARAMETER = None):
 
  
     #1. duplicate right Core Template to target directory (AMI or RMF approach)
@@ -69,6 +46,7 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
 
     ## Copy init related files to target
 
+
     if INIT_FROM_PREVIOUS:
 
         # create init folder in case
@@ -95,6 +73,16 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
 
     #2. know about what simulation we are talking about (geometry facts & RPM)
     
+    # adapt study parameter in case file in study mode
+
+    if STUDY_PARAMETER_NAME is not None and STUDY_PARAMETER_FILE is not None and STUDY_PARAMETER is not None:
+
+        file_name = STUDY_PARAMETER_FILE + ".cpp"
+
+        file_path = Path(TARGET_DIRECTORY) / "Parameters" / file_name
+
+        update_parameter(file_path, STUDY_PARAMETER_NAME, STUDY_PARAMETER)
+
 
     #3. adapt all exisiting parameters based on certain rules
 
@@ -102,12 +90,12 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
 
     omega = RPM_COUNT * 2 * math.pi / 60
 
-    update_parameters(rotational_parameters_file_path, 'omega_val', omega)
+    update_parameter(rotational_parameters_file_path, 'omega_val', omega)
 
 
-    decomposeParDict_parameters_file_path = os.path.join(TARGET_DIRECTORY, 'Parameters', 'decomposeParDict_parameters.cpp')
+    decomposeParDict_parameters_file_path = os.path.join(TARGET_DIRECTORY, 'Parameters', 'decomposeParDict.cpp')
 
-    update_parameters(decomposeParDict_parameters_file_path, 'numberOfSubdomains', CORES_TO_USE)
+    update_parameter(decomposeParDict_parameters_file_path, 'numberOfSubdomains', CORES_TO_USE)
 
 
     #4. generate STL file from requestes described geometry (other function)
@@ -129,8 +117,3 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
     
 
     return None
-
-
-#preprocessing("9x7-PERF", 1707, r"C:\Users\jonas\OneDrive\ETH\FS2026\Semester Project\GITHUB\Repository\sim-pipeline", r"C:\Users\jonas\Downloads\New folder")
-
-#generateSTL("5x3E-PERF", r"C:\Users\jonas\OneDrive\ETH\FS2026\Semester Project\GITHUB\Repository\sim-pipeline", r"C:\Users\jonas\Downloads\New folder", 100)

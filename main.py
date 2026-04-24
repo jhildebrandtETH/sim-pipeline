@@ -54,7 +54,55 @@ def main() -> None:
         help="Choose if flow initialization should be used. Optional. Default: on",
     )
 
+    parser.add_argument(
+    "--study",
+    type=str,
+    default="off",
+    choices=["on", "off"],
+    help="Enable parameter study mode."
+    )
+
+    parser.add_argument(
+        "--study-file",
+        type=str,
+        help="Name of the file in which the study parameter lives."
+    )
+
+    parser.add_argument(
+        "--study-parameter",
+        type=str,
+        help="Name of the parameter to vary."
+    )
+
+    parser.add_argument(
+    "--study-values",
+    type=str,
+    help="Study values separated by '...'. Example: '(8 24 8)...(16 48 16)'"
+)
+
     args = parser.parse_args()
+
+    # --- custom validation ---
+    if args.study == "on":
+        if len(args.geometries) != 1:
+            parser.error("When --study is 'on', exactly one geometry must be given.")
+
+        if len(args.rpms) != 1:
+            parser.error("When --study is 'on', exactly one RPM must be given.")
+
+        if not args.study_file:
+            parser.error("When --study is 'on', --study-file is required.")
+
+        if not args.study_parameter:
+            parser.error("When --study is 'on', --study-parameter is required.")
+
+        if not args.study_values:
+            parser.error("When --study is 'on', --study-values is required.")
+    else:
+        if args.study_file or args.study_parameter or args.study_values:
+            parser.error(
+                "--study-file, --study-parameter, and --study-values may only be used when --study is 'on'."
+            )
 
     simulations_directory = args.sim_dir.resolve()
     simulations_directory.mkdir(parents=True, exist_ok=True)
@@ -67,23 +115,90 @@ def main() -> None:
     convergence_tolerance = 1e-3
     cores_to_use = 24
 
-    # -------- PIPELINE --------
-    for geometry in requested_geometries_array:
-        previous_simulation_path = None
+    # -------- PIPELINE @ STUDY OFF --------
 
-        for rpm in requested_RPMS:
-            folder_name = f"{geometry}_{rpm}RPM"
+    if args.study == "off":
+
+        for geometry in requested_geometries_array:
+            previous_simulation_path = None
+
+            for rpm in requested_RPMS:
+                folder_name = f"{geometry}_{rpm}RPM"
+                simulation_path = simulations_directory / folder_name
+                simulation_path.mkdir(parents=True, exist_ok=True)
+
+                stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
+
+                print(f"\n--- Running case: {geometry} @ {rpm} RPM @ {args.mode} @ Field Init: {args.field_init} ---")
+
+                # Decide whether this case should use field initialization
+                use_previous_init = (
+                    args.field_init == "on" and previous_simulation_path is not None
+                )
+
+                preprocessing(
+                    STL_PATH=stl_path,
+                    RPM_COUNT=rpm,
+                    MAIN_DIRECTORY=pipeline_main_directory,
+                    TARGET_DIRECTORY=simulation_path,
+                    CORES_TO_USE=cores_to_use,
+                    MODE=args.mode,
+                    INIT_FROM_PREVIOUS=use_previous_init,
+                    PREVIOUS_SIMULATION_PATH=previous_simulation_path
+                )
+
+                simulation_name = f"{geometry}_{rpm}RPM"
+
+                openfoamSimulation(
+                    simulation_name=simulation_name,
+                    simulation_working_directory=simulation_path,
+                    convergence_tolerance=convergence_tolerance,
+                    rpm_count=rpm,
+                    convergence_window_revolutions=convergence_monitoring_revolutions_count,
+                    MODE=args.mode,
+                    initialize_from_previous=use_previous_init,
+                    previous_simulation_path=previous_simulation_path,
+                )
+
+                # After successful run, store current case as source for next RPM of same geometry
+                previous_simulation_path = simulation_path
+    # -------- PIPELINE @ STUDY ON --------
+    if args.study == "on":
+
+        geometry = args.geometries[0]
+        rpm = args.rpms[0]
+
+        study_values = [
+            value.strip()
+            for value in args.study_values.split("...")
+            if value.strip()
+        ]
+
+        for parameter in study_values:
+
+            previous_simulation_path = None
+
+            # Make folder-name safe
+            parameter_folder_name = (
+                parameter
+                .replace(" ", "_")
+                .replace("(", "")
+                .replace(")", "")
+                .replace("/", "_")
+            )
+
+            folder_name = f"{geometry}_{rpm}RPM_{args.study_parameter}_{parameter_folder_name}"
             simulation_path = simulations_directory / folder_name
             simulation_path.mkdir(parents=True, exist_ok=True)
 
             stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
 
-            print(f"\n--- Running case: {geometry} @ {rpm} RPM @ {args.mode} @ Field Init: {args.field_init} ---")
-
-            # Decide whether this case should use field initialization
-            use_previous_init = (
-                args.field_init == "on" and previous_simulation_path is not None
+            print(
+                f"\n--- Running case: {geometry} @ {rpm} RPM @ {args.mode} "
+                f"@ {args.study_parameter}: {parameter} ---"
             )
+
+            use_previous_init = False
 
             preprocessing(
                 STL_PATH=stl_path,
@@ -93,10 +208,13 @@ def main() -> None:
                 CORES_TO_USE=cores_to_use,
                 MODE=args.mode,
                 INIT_FROM_PREVIOUS=use_previous_init,
-                PREVIOUS_SIMULATION_PATH=previous_simulation_path
+                PREVIOUS_SIMULATION_PATH=previous_simulation_path,
+                STUDY_PARAMETER_NAME=args.study_parameter,
+                STUDY_PARAMETER_FILE=args.study_file,
+                STUDY_PARAMETER=parameter,
             )
 
-            simulation_name = f"{geometry}_{rpm}RPM"
+            simulation_name = f"{geometry}_{rpm}RPM_{args.study_parameter}_{parameter_folder_name}"
 
             openfoamSimulation(
                 simulation_name=simulation_name,
@@ -109,8 +227,6 @@ def main() -> None:
                 previous_simulation_path=previous_simulation_path,
             )
 
-            # After successful run, store current case as source for next RPM of same geometry
-            previous_simulation_path = simulation_path
 
     print("\nAll simulations completed.")
 

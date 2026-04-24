@@ -14,7 +14,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "../Parameters/decomposeParDict_parameters.cpp"
+#include "../Parameters/decomposeParDict.cpp"
 
 numberOfSubdomains   $numberOfSubdomains;
 

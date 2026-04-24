@@ -8,7 +8,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "../Parameters/controlDict_parameters.cpp"
+#include "../Parameters/controlDict.cpp"
 
 application     pimpleFoam;
 

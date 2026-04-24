@@ -7,7 +7,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "../Parameters/snappyHexMeshDict_parameters.cpp"
+#include "../Parameters/snappyHexMeshDict.cpp"
 
 
 // Which of the steps to run
