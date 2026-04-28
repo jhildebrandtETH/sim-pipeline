@@ -8,7 +8,7 @@ from tools import is_mesh_ok
 
 convergence_check_interval = 1
 
-def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE, initialize_from_previous=False, previous_simulation_path=None):
+def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE, NUMBER_OF_CORES, initialize_from_previous=False, previous_simulation_path=None):
 
     # Docker client is setup here, interface volume mapping is defined, container is created:
 
@@ -169,7 +169,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
         # Starting the actual solving process
 
-        simRun_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && mpirun --allow-run-as-root --use-hwthread-cpus -np 24 foamRun -solver incompressibleFluid -parallel | tee log.pimpleFoam'"
+        simRun_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && mpirun --allow-run-as-root --use-hwthread-cpus -np {NUMBER_OF_CORES} foamRun -solver incompressibleFluid -parallel | tee log.pimpleFoam'"
 
         print("pimpleFoamSolver started...")
 

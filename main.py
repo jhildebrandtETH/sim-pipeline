@@ -79,7 +79,14 @@ def main() -> None:
     "--study-values",
     type=str,
     help="Study values separated by '...'. Example: '(8 24 8)...(16 48 16)'"
-)
+    )
+
+    parser.add_argument(
+        "--cores",
+        type=int,
+        required=True,
+        help="Number of cores the solver is using.",
+    )
 
     args = parser.parse_args()
 
@@ -114,7 +121,6 @@ def main() -> None:
     # -------- SETTINGS --------
     convergence_monitoring_revolutions_count = 1000
     convergence_tolerance = 1e-3
-    cores_to_use = 24
 
     # -------- PIPELINE @ STUDY OFF --------
 
@@ -142,7 +148,7 @@ def main() -> None:
                     RPM_COUNT=rpm,
                     MAIN_DIRECTORY=pipeline_main_directory,
                     TARGET_DIRECTORY=simulation_path,
-                    CORES_TO_USE=cores_to_use,
+                    CORES_TO_USE=args.cores,
                     MODE=args.mode,
                     INIT_FROM_PREVIOUS=use_previous_init,
                     PREVIOUS_SIMULATION_PATH=previous_simulation_path
@@ -159,6 +165,7 @@ def main() -> None:
                     MODE=args.mode,
                     initialize_from_previous=use_previous_init,
                     previous_simulation_path=previous_simulation_path,
+                    NUMBER_OF_CORES=args.cores,
                 )
 
                 # After successful run, store current case as source for next RPM of same geometry
@@ -213,7 +220,7 @@ def main() -> None:
                 RPM_COUNT=rpm,
                 MAIN_DIRECTORY=pipeline_main_directory,
                 TARGET_DIRECTORY=simulation_path,
-                CORES_TO_USE=cores_to_use,
+                CORES_TO_USE=args.cores,
                 MODE=args.mode,
                 INIT_FROM_PREVIOUS=use_previous_init,
                 PREVIOUS_SIMULATION_PATH=previous_simulation_path,
@@ -233,6 +240,7 @@ def main() -> None:
                 MODE=args.mode,
                 initialize_from_previous=use_previous_init,
                 previous_simulation_path=previous_simulation_path,
+                NUMBER_OF_CORES=args.cores,
             )
 
             postprocessing(
