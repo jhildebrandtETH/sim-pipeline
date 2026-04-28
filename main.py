@@ -5,6 +5,7 @@ import os
 
 from preprocessing import preprocessing
 from openfoamSimulation import openfoamSimulation
+from postprocessing import postprocessing
 
 
 def main() -> None:
@@ -162,6 +163,13 @@ def main() -> None:
 
                 # After successful run, store current case as source for next RPM of same geometry
                 previous_simulation_path = simulation_path
+
+
+                postprocessing(
+                MAIN_DIRECTORY=pipeline_main_directory,
+                RPM_COUNT= rpm,
+                MODE=args.mode,
+                )
     # -------- PIPELINE @ STUDY ON --------
     if args.study == "on":
 
@@ -226,6 +234,13 @@ def main() -> None:
                 initialize_from_previous=use_previous_init,
                 previous_simulation_path=previous_simulation_path,
             )
+
+            postprocessing(
+                SIMULATION_WORKING_DIRECTORY=simulation_path,
+                RPM_COUNT= rpm,
+                MODE=args.mode,
+            )
+
 
 
     print("\nAll simulations completed.")
