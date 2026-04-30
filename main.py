@@ -1,255 +1,283 @@
 import argparse
-import itertools
 from pathlib import Path
-import os
 
 from preprocessing import preprocessing
 from openfoamSimulation import openfoamSimulation
 from postprocessing import postprocessing
+from tools import create_simulation_order
+from tools import load_simulation_order
+from tools import update_case_status
+from tools import has_timestep
+from tools import reset_case_folder
+from tools import get_safe_timestep
+from tools import update_parameter
 
 
 def main() -> None:
-    # Repository root
     pipeline_main_directory = Path(__file__).resolve().parent
 
-    # -------- CLI ARGUMENTS --------
-    parser = argparse.ArgumentParser(
-        description="Dispatch OpenFOAM simulations."
-    )
+    parser = argparse.ArgumentParser(description="Dispatch OpenFOAM simulations.")
 
     parser.add_argument(
         "--sim-dir",
         type=Path,
         required=True,
-        help="Directory where simulation cases will be created",
+        help="Directory where simulation cases will be created or resumed.",
     )
-
+    parser.add_argument("--geometries", nargs="+")
+    parser.add_argument("--rpms", nargs="+", type=int)
+    parser.add_argument("--mode", choices=["AMI", "MRF"])
+    parser.add_argument("--field-init", default="on", choices=["on", "off"])
+    parser.add_argument("--study", default="off", choices=["on", "off"])
+    parser.add_argument("--study-file")
+    parser.add_argument("--study-parameter")
     parser.add_argument(
-        "--geometries",
-        nargs="+",
-        required=True,
-        help="List of geometries (e.g. 10x7E 11x8E)",
+        "--study-values",
+        help="Study values separated by '...'. Example: '(8 24 8)...(16 48 16)'",
     )
-
-    parser.add_argument(
-        "--rpms",
-        nargs="+",
-        type=int,
-        required=True,
-        help="List of RPM values (e.g. 6000 7000)",
-    )
-
-    parser.add_argument(
-        "--mode",
-        type=str,
-        required=True,
-        choices=["AMI", "MRF"],
-        help="Choose rotational approach (AMI or MRF)",
-    )
-
-    parser.add_argument(
-        "--field-init",
-        type=str,
-        default="on",
-        choices=["on", "off"],
-        help="Choose if flow initialization should be used. Optional. Default: on",
-    )
-
-    parser.add_argument(
-    "--study",
-    type=str,
-    default="off",
-    choices=["on", "off"],
-    help="Enable parameter study mode."
-    )
-
-    parser.add_argument(
-        "--study-file",
-        type=str,
-        help="Name of the file in which the study parameter lives."
-    )
-
-    parser.add_argument(
-        "--study-parameter",
-        type=str,
-        help="Name of the parameter to vary."
-    )
-
-    parser.add_argument(
-    "--study-values",
-    type=str,
-    help="Study values separated by '...'. Example: '(8 24 8)...(16 48 16)'"
-    )
-
-    parser.add_argument(
-        "--cores",
-        type=int,
-        required=True,
-        help="Number of cores the solver is using.",
-    )
+    parser.add_argument("--cores", type=int)
+    parser.add_argument("--resume", action="store_true")
 
     args = parser.parse_args()
+    simulations_directory = args.sim_dir.resolve()
 
-    # --- custom validation ---
-    if args.study == "on":
-        if len(args.geometries) != 1:
-            parser.error("When --study is 'on', exactly one geometry must be given.")
+    # -------- RESUME / NEW RUN VALIDATION --------
+    if args.resume:
+        if not simulations_directory.exists():
+            parser.error(f"--sim-dir does not exist: {simulations_directory}")
 
-        if len(args.rpms) != 1:
-            parser.error("When --study is 'on', exactly one RPM must be given.")
-
-        if not args.study_file:
-            parser.error("When --study is 'on', --study-file is required.")
-
-        if not args.study_parameter:
-            parser.error("When --study is 'on', --study-parameter is required.")
-
-        if not args.study_values:
-            parser.error("When --study is 'on', --study-values is required.")
-    else:
-        if args.study_file or args.study_parameter or args.study_values:
+        order_file = simulations_directory / "simulation_order.json"
+        if not order_file.exists():
             parser.error(
-                "--study-file, --study-parameter, and --study-values may only be used when --study is 'on'."
+                f"--resume was used, but no simulation_order.json was found in {simulations_directory}"
             )
 
-    simulations_directory = args.sim_dir.resolve()
-    simulations_directory.mkdir(parents=True, exist_ok=True)
+        order = load_simulation_order(simulations_directory)
 
-    requested_geometries_array = args.geometries
-    requested_RPMS = args.rpms
+        args.mode = order["mode"]
+        args.geometries = order["geometries"]
+        args.rpms = order["rpms"]
+        args.field_init = order.get("field_init", "on")
+        args.study = order.get("study", "off")
+        args.study_file = order.get("study_file")
+        args.study_parameter = order.get("study_parameter")
+        args.study_values = order.get("study_values")
+        args.cores = order["cores"]
 
-    # -------- SETTINGS --------
+        print(f"\n--- Resuming simulation batch from: {simulations_directory} ---")
+        print(f"Mode: {args.mode}")
+        print(f"Geometries: {args.geometries}")
+        print(f"RPMs: {args.rpms}")
+        print(f"Cores: {args.cores}")
+        print(f"Study: {args.study}")
+
+    else:
+        missing = []
+        if args.geometries is None:
+            missing.append("--geometries")
+        if args.rpms is None:
+            missing.append("--rpms")
+        if args.mode is None:
+            missing.append("--mode")
+        if args.cores is None:
+            missing.append("--cores")
+
+        if missing:
+            parser.error(
+                "The following arguments are required for a new simulation run: "
+                + ", ".join(missing)
+            )
+
+        if args.study == "on":
+            study_missing = []
+            if args.study_file is None:
+                study_missing.append("--study-file")
+            if args.study_parameter is None:
+                study_missing.append("--study-parameter")
+            if args.study_values is None:
+                study_missing.append("--study-values")
+
+            if study_missing:
+                parser.error(
+                    "The following arguments are required when --study on: "
+                    + ", ".join(study_missing)
+                )
+
+            if len(args.geometries) != 1 or len(args.rpms) != 1:
+                parser.error(
+                    "When --study on, exactly one geometry and one RPM must be provided."
+                )
+
+        simulations_directory.mkdir(parents=True, exist_ok=True)
+        create_simulation_order(args=args, simulations_directory=simulations_directory)
+        order = load_simulation_order(simulations_directory)
+
     convergence_monitoring_revolutions_count = 1000
     convergence_tolerance = 1e-3
 
-    # -------- PIPELINE @ STUDY OFF --------
+    previous_simulation_by_geometry = {}
 
-    if args.study == "off":
+    # -------- UNIFIED CASE-BASED PIPELINE --------
+    for case in order["cases"]:
+        folder_name = case["folder"]
+        geometry = case["geometry"]
+        rpm = int(case["rpm"])
+        mode = case.get("mode", args.mode)
+        status = case.get("status", "pending")
 
-        for geometry in requested_geometries_array:
-            previous_simulation_path = None
+        simulation_path = simulations_directory / folder_name
+        simulation_path.mkdir(parents=True, exist_ok=True)
 
-            for rpm in requested_RPMS:
-                folder_name = f"{geometry}_{rpm}RPM"
-                simulation_path = simulations_directory / folder_name
-                simulation_path.mkdir(parents=True, exist_ok=True)
+        stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
+        is_study_case = "study_value" in case
 
-                stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
+        print(f"\n--- Case: {folder_name} | Status: {status} ---")
 
-                print(f"\n--- Running case: {geometry} @ {rpm} RPM @ {args.mode} @ Field Init: {args.field_init} ---")
+        if status == "postprocessing_done":
+            print("Skipping completed case.")
+            if not is_study_case:
+                previous_simulation_by_geometry[geometry] = simulation_path
+            continue
 
-                # Decide whether this case should use field initialization
-                use_previous_init = (
-                    args.field_init == "on" and previous_simulation_path is not None
-                )
+        previous_simulation_path = previous_simulation_by_geometry.get(geometry)
+        use_previous_init = (
+            args.field_init == "on"
+            and previous_simulation_path is not None
+            and not is_study_case
+        )
 
-                preprocessing(
+        # Inner loop allows a clean restart to return to preprocessing
+        # for the same case instead of moving to the next case.
+        while status != "postprocessing_done":
+
+            # ---------------- PREPROCESSING ----------------
+            if status == "pending":
+                print("Starting preprocessing...")
+
+                preprocessing_kwargs = dict(
                     STL_PATH=stl_path,
                     RPM_COUNT=rpm,
                     MAIN_DIRECTORY=pipeline_main_directory,
                     TARGET_DIRECTORY=simulation_path,
                     CORES_TO_USE=args.cores,
-                    MODE=args.mode,
+                    MODE=mode,
                     INIT_FROM_PREVIOUS=use_previous_init,
-                    PREVIOUS_SIMULATION_PATH=previous_simulation_path
+                    PREVIOUS_SIMULATION_PATH=previous_simulation_path,
                 )
 
-                simulation_name = f"{geometry}_{rpm}RPM"
+                if is_study_case:
+                    preprocessing_kwargs.update(
+                        STUDY_PARAMETER_NAME=case["study_parameter"],
+                        STUDY_PARAMETER_FILE=case["study_file"],
+                        STUDY_PARAMETER=case["study_value"],
+                    )
 
-                openfoamSimulation(
-                    simulation_name=simulation_name,
+                preprocessing(**preprocessing_kwargs)
+                update_case_status(simulations_directory, folder_name, "preprocessing_done")
+                status = "preprocessing_done"
+                continue
+
+            # ---------------- SOLVER START ----------------
+            if status == "preprocessing_done":
+                print("Starting OpenFOAM solver...")
+                update_case_status(simulations_directory, folder_name, "solver_running")
+
+                try:
+                    openfoamSimulation(
+                        resume=False,
+                        simulation_name=folder_name,
+                        simulation_working_directory=simulation_path,
+                        convergence_tolerance=convergence_tolerance,
+                        rpm_count=rpm,
+                        convergence_window_revolutions=convergence_monitoring_revolutions_count,
+                        MODE=mode,
+                        initialize_from_previous=use_previous_init,
+                        previous_simulation_path=previous_simulation_path,
+                        NUMBER_OF_CORES=args.cores,
+                    )
+                except Exception:
+                    print(
+                        f"Solver failed/interrupted for {folder_name}. "
+                        "Status remains 'solver_running' for resume."
+                    )
+                    raise
+
+                update_case_status(simulations_directory, folder_name, "solver_done")
+                status = "solver_done"
+                continue
+
+            # ---------------- SOLVER RESUME ----------------
+            if status == "solver_running":
+
+                processor0_path = simulation_path / "processor0"
+
+                if not has_timestep(processor0_path):
+                    print("Solver marked as running but no timesteps found → clean restart")
+
+                    reset_case_folder(simulation_path)
+
+                    update_case_status(simulations_directory, folder_name, "pending")
+                    status = "pending"
+                    continue
+
+                
+
+                # adjust safe timestep to resume from
+
+                safe_time = get_safe_timestep(simulation_path)
+
+                if safe_time is None:
+                    # timesteps exist but none are usable -> clean restart
+                    print("Timesteps exist but none are usable→ clean restart")
+
+                    reset_case_folder(simulation_path)
+
+                    update_case_status(simulations_directory, folder_name, "pending")
+                    status = "pending"
+                    continue
+                else:
+                    # commands if valid timesteps are there and standard resume:
+                    print("Resuming solver from latest timestep")
+                
+
+                success = openfoamSimulation(
+                    resume=True,
+                    simulation_name=folder_name,
                     simulation_working_directory=simulation_path,
                     convergence_tolerance=convergence_tolerance,
                     rpm_count=rpm,
                     convergence_window_revolutions=convergence_monitoring_revolutions_count,
-                    MODE=args.mode,
+                    MODE=mode,
                     initialize_from_previous=use_previous_init,
                     previous_simulation_path=previous_simulation_path,
                     NUMBER_OF_CORES=args.cores,
                 )
 
-                # After successful run, store current case as source for next RPM of same geometry
-                previous_simulation_path = simulation_path
+                if success:
+                    update_case_status(simulations_directory, folder_name, "solver_done")
+                    status = "solver_done"
+                else:
+                    update_case_status(simulations_directory, folder_name, "solver_running")
+                    break
 
+                continue
 
+            # ---------------- POSTPROCESSING ----------------
+            if status == "solver_done":
+                print("Starting postprocessing...")
                 postprocessing(
-                MAIN_DIRECTORY=pipeline_main_directory,
-                RPM_COUNT= rpm,
-                MODE=args.mode,
+                    SIMULATION_WORKING_DIRECTORY=simulation_path,
+                    RPM_COUNT=rpm,
+                    MODE=mode,
                 )
-    # -------- PIPELINE @ STUDY ON --------
-    if args.study == "on":
+                update_case_status(simulations_directory, folder_name, "postprocessing_done")
+                status = "postprocessing_done"
+                continue
 
-        geometry = args.geometries[0]
-        rpm = args.rpms[0]
+            raise ValueError(f"Unknown case status for {folder_name}: {status}")
 
-        study_values = [
-            value.strip()
-            for value in args.study_values.split("...")
-            if value.strip()
-        ]
-
-        for parameter in study_values:
-
-            previous_simulation_path = None
-
-            # Make folder-name safe
-            parameter_folder_name = (
-                parameter
-                .replace(" ", "_")
-                .replace("(", "")
-                .replace(")", "")
-                .replace("/", "_")
-            )
-
-            folder_name = f"{geometry}_{rpm}RPM_{args.study_parameter}_{parameter_folder_name}"
-            simulation_path = simulations_directory / folder_name
-            simulation_path.mkdir(parents=True, exist_ok=True)
-
-            stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
-
-            print(
-                f"\n--- Running case: {geometry} @ {rpm} RPM @ {args.mode} "
-                f"@ {args.study_parameter}: {parameter} ---"
-            )
-
-            use_previous_init = False
-
-            preprocessing(
-                STL_PATH=stl_path,
-                RPM_COUNT=rpm,
-                MAIN_DIRECTORY=pipeline_main_directory,
-                TARGET_DIRECTORY=simulation_path,
-                CORES_TO_USE=args.cores,
-                MODE=args.mode,
-                INIT_FROM_PREVIOUS=use_previous_init,
-                PREVIOUS_SIMULATION_PATH=previous_simulation_path,
-                STUDY_PARAMETER_NAME=args.study_parameter,
-                STUDY_PARAMETER_FILE=args.study_file,
-                STUDY_PARAMETER=parameter,
-            )
-
-            simulation_name = f"{geometry}_{rpm}RPM_{args.study_parameter}_{parameter_folder_name}"
-
-            openfoamSimulation(
-                simulation_name=simulation_name,
-                simulation_working_directory=simulation_path,
-                convergence_tolerance=convergence_tolerance,
-                rpm_count=rpm,
-                convergence_window_revolutions=convergence_monitoring_revolutions_count,
-                MODE=args.mode,
-                initialize_from_previous=use_previous_init,
-                previous_simulation_path=previous_simulation_path,
-                NUMBER_OF_CORES=args.cores,
-            )
-
-            postprocessing(
-                SIMULATION_WORKING_DIRECTORY=simulation_path,
-                RPM_COUNT= rpm,
-                MODE=args.mode,
-            )
-
-
+        if status == "postprocessing_done" and not is_study_case:
+            previous_simulation_by_geometry[geometry] = simulation_path
 
     print("\nAll simulations completed.")
 

@@ -395,8 +395,8 @@ def create_simulation_report(case_path, rpm, mode, output_pdf=None):
     report_dir = case_path / "report"
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    force_file = case_path / "postProcessing" / "forcesBlades" / "0" / "forces.dat"
-    residual_file = case_path / "postProcessing" / "residuals" / "0" / "residuals.dat"
+    force_file = case_path / "postProcessing" / "forcesBlades" / "merged_forces.dat"
+    residual_file = case_path / "postProcessing" / "residuals" / "merged_residuals.dat"
     log_file = case_path / "log.pimpleFoam"
 
     mesh_info = read_mesh_information(case_path)

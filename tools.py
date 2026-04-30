@@ -4,7 +4,219 @@ import numpy as np
 import pandas as pd
 import re
 from pathlib import Path
+import json
+from datetime import datetime
 
+
+def merge_postprocessing_dat_files(case_dir: Path, function_object_name: str) -> Path | None:
+    """
+    Merge all .dat files from postProcessing/<function_object_name>/<timeFolder>/ into
+    one combined .dat file.
+
+    Example:
+        postProcessing/forcesBlades/0/force.dat
+        postProcessing/forcesBlades/0.001/force.dat
+
+    Output:
+        postProcessing/forcesBlades/merged_force.dat
+    """
+
+    function_dir = Path(case_dir) / "postProcessing" / function_object_name
+
+    if not function_dir.exists():
+        print(f"No postProcessing folder found for: {function_object_name}")
+        return None
+
+    dat_files = []
+
+    for time_folder in function_dir.iterdir():
+        if not time_folder.is_dir():
+            continue
+
+        try:
+            start_time = float(time_folder.name)
+        except ValueError:
+            continue
+
+        for dat_file in time_folder.glob("*.dat"):
+            dat_files.append((start_time, dat_file))
+
+    if not dat_files:
+        print(f"No .dat files found for: {function_object_name}")
+        return None
+
+    dat_files.sort(key=lambda item: item[0])
+
+    # Group by filename, e.g. force.dat, residuals.dat, yPlus.dat
+    files_by_name = {}
+
+    for start_time, dat_file in dat_files:
+        files_by_name.setdefault(dat_file.name, []).append((start_time, dat_file))
+
+    last_output_path = None
+
+    for dat_name, files in files_by_name.items():
+        output_path = function_dir / f"merged_{dat_name}"
+
+        header_written = False
+        seen_times = set()
+
+        with output_path.open("w") as out_file:
+            for _, dat_file in files:
+                with dat_file.open("r") as in_file:
+                    for line in in_file:
+                        stripped = line.strip()
+
+                        if not stripped:
+                            continue
+
+                        # Header/comment lines
+                        if stripped.startswith("#"):
+                            if not header_written:
+                                out_file.write(line)
+                            continue
+
+                        # Avoid duplicate time rows
+                        first_column = stripped.split()[0]
+
+                        try:
+                            time_value = float(first_column)
+                        except ValueError:
+                            continue
+
+                        if time_value in seen_times:
+                            continue
+
+                        seen_times.add(time_value)
+                        out_file.write(line)
+
+                header_written = True
+
+        print(f"Merged {function_object_name}: {output_path}")
+        last_output_path = output_path
+
+    return last_output_path
+
+
+
+def reset_case_folder(simulation_path: Path):
+    if simulation_path.exists():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        broken_path = simulation_path.with_name(
+            simulation_path.name + f"_BROKEN_{timestamp}"
+        )
+
+        simulation_path.rename(broken_path)
+        print(f"Moved broken case to: {broken_path}")
+
+    simulation_path.mkdir(parents=True, exist_ok=True)
+
+def make_folder_safe(value: str) -> str:
+    return (
+        value.replace(" ", "_")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("/", "_")
+    )
+
+
+def load_simulation_order(simulations_directory: Path):
+    json_path = simulations_directory / "simulation_order.json"
+
+    if not json_path.exists():
+        raise FileNotFoundError("No simulation_batch.json found for resume")
+
+    with open(json_path, "r") as f:
+        return json.load(f)
+    
+
+
+def update_case_status(simulations_directory: Path, folder_name: str, new_status: str):
+    json_path = simulations_directory / "simulation_order.json"
+
+    with open(json_path, "r") as f:
+        batch = json.load(f)
+
+    for case in batch["cases"]:
+        if case["folder"] == folder_name:
+            case["status"] = new_status
+            break
+
+    with open(json_path, "w") as f:
+        json.dump(batch, f, indent=4)
+
+
+
+def create_simulation_order(args, simulations_directory: Path):
+    batch = {
+        "mode": args.mode,
+        "geometries": args.geometries,
+        "rpms": args.rpms,
+        "cores": args.cores,
+        "field_init": args.field_init,
+        "study": args.study,
+        "study_file": getattr(args, "study_file", None),
+        "study_parameter": getattr(args, "study_parameter", None),
+        "study_values": getattr(args, "study_values", None),
+        "cases": []
+    }
+
+    # -------- STUDY ON --------
+    if args.study == "on":
+        geometry = args.geometries[0]
+        rpm = args.rpms[0]
+
+        study_values = [
+            value.strip()
+            for value in args.study_values.split("...")
+            if value.strip()
+        ]
+
+        for value in study_values:
+            safe_value = make_folder_safe(value)
+
+            folder = f"{geometry}_{rpm}RPM_{args.study_parameter}_{safe_value}"
+
+            batch["cases"].append({
+                "folder": folder,
+                "geometry": geometry,
+                "rpm": rpm,
+                "mode": args.mode,
+                "cores": args.cores,
+                "field_init": args.field_init,
+                "study": args.study,
+                "study_file": args.study_file,
+                "study_parameter": args.study_parameter,
+                "study_value": value,
+                "status": "pending"
+            })
+
+    # -------- STUDY OFF --------
+    else:
+        for geometry in args.geometries:
+            for rpm in args.rpms:
+                folder = f"{geometry}_{rpm}RPM_{args.mode}"
+
+                batch["cases"].append({
+                    "folder": folder,
+                    "geometry": geometry,
+                    "rpm": rpm,
+                    "mode": args.mode,
+                    "cores": args.cores,
+                    "field_init": args.field_init,
+                    "study": args.study,
+                    "study_file": None,
+                    "study_parameter": None,
+                    "study_value": None,
+                    "status": "pending"
+                })
+
+    json_path = simulations_directory / "simulation_order.json"
+
+    with open(json_path, "w") as f:
+        json.dump(batch, f, indent=4)
+
+    print(f"Created simulation order file: {json_path}")
 
 
 def is_mesh_ok(log_path):
@@ -178,7 +390,8 @@ def run_convergence_monitor(
     rpm,
     avg_history_count,
     tolerance,
-    check_interval
+    check_interval,
+    timestep:str
 ):
     """
     Monitor an OpenFOAM simulation and stop it once converged.
@@ -200,13 +413,13 @@ def run_convergence_monitor(
     """
 
     force_file = os.path.join(
-        main_sim_folder, "postProcessing", "forcesBlades", "0", "forces.dat"
+        main_sim_folder, "postProcessing", "forcesBlades", timestep, "forces.dat"
     )
     yplus_file = os.path.join(
-        main_sim_folder, "postProcessing", "yPlus", "0", "yPlus.dat"
+        main_sim_folder, "postProcessing", "yPlus", timestep, "yPlus.dat"
     )
     residuals_file = os.path.join(
-        main_sim_folder, "postProcessing", "residuals", "0", "residuals.dat"
+        main_sim_folder, "postProcessing", "residuals", timestep, "residuals.dat"
     )
     control_dict = os.path.join(main_sim_folder, "system", "controlDict")
 
@@ -312,6 +525,22 @@ def run_convergence_monitor(
 
             latest_sim_time = float(avg_times[-1])
             current_avg_thrust = float(avg_vals[-1])
+
+            if os.path.exists(control_dict):
+                with open(control_dict, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        if line.strip().startswith("endTime"):
+                            try:
+                                end_time = float(line.split()[1].replace(";", ""))
+                                if latest_sim_time >= end_time - 1e-8:
+                                    print(
+                                        f"\n>>> Simulation reached endTime={end_time} "
+                                        f"without convergence <<<"
+                                    )
+                                    return False
+                            except:
+                                pass
+                            break
 
             # ----------------------------
             # Define last full-revolution window for y+ and residual reporting
@@ -427,11 +656,18 @@ def get_latest_timestep(case_path):
     case_path = Path(case_path)
 
     time_dirs = []
+
     for item in case_path.iterdir():
         if item.is_dir():
             try:
                 time_value = float(item.name)
+
+                # Skip the initial "0" folder
+                if time_value == 0.0:
+                    continue
+
                 time_dirs.append((time_value, item.name))
+
             except ValueError:
                 pass
 
@@ -440,6 +676,66 @@ def get_latest_timestep(case_path):
 
     latest_time, latest_name = max(time_dirs, key=lambda x: x[0])
     return latest_time, latest_name
+
+def has_timestep(case_path):
+    try:
+        get_latest_timestep(case_path)
+        return True
+    except FileNotFoundError:
+        return False
+    
+def get_safe_timestep(case_dir: Path, required_fields=("U", "p")):
+    """
+    Returns safest timestep for resume:
+    - Uses processor0 if parallel case exists
+    - Falls back to case root if serial
+    - Ignores timestep 0
+    - Checks required fields exist
+    - Picks newest valid timestep
+    """
+
+    # detect processor folders
+    processor_dirs = sorted(case_dir.glob("processor*"))
+
+    if processor_dirs:
+        base_dir = processor_dirs[0]  # use processor0 as reference
+    else:
+        base_dir = case_dir
+
+    times = []
+
+    # collect numeric timestep folders
+    for path in base_dir.iterdir():
+        if not path.is_dir():
+            continue
+
+        try:
+            t = float(path.name)
+        except ValueError:
+            continue
+
+        if t > 0:
+            times.append(t)
+
+    if not times:
+        return None
+
+    times = sorted(times)
+
+    # iterate newest → oldest
+    for t in reversed(times):
+        time_dir = base_dir / f"{t:.10g}"
+
+        valid = True
+        for field in required_fields:
+            if not (time_dir / field).exists():
+                valid = False
+                break
+
+        if valid:
+            return t
+
+    return None
 
 def update_parameter(file_path, target_var, new_value):
     if not os.path.exists(file_path):
