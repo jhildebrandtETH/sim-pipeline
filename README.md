@@ -78,7 +78,7 @@ Reason:
 ```bash
 python main.py \
   --sim-dir /scratch/simulations \
-  --resume on
+  --resume
 ```
 
 → Continues all pending or interrupted cases inside the simulation directory.
