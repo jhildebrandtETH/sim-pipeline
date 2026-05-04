@@ -7,6 +7,9 @@ from tools import is_mesh_ok
 from tools import get_safe_timestep
 
 
+status = False
+
+
 convergence_check_interval = 1
 
 def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE, NUMBER_OF_CORES, resume, MESH_ONLY, ALLOW_BAD_MESH, initialize_from_previous=False, previous_simulation_path=None):
@@ -257,6 +260,8 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
         else:
             print("NOTICE: Simulation finished normally (reached original endTime).")
 
+        status = True
+
 
         reconstructPar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && reconstructPar > log.reconstructPar'"
 
@@ -271,6 +276,8 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
             pass
 
         print("reconstructPar finsished...")
+    else: 
+        status = True
 
 
     # Create .FOAM file
@@ -297,5 +304,4 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("Cleanup complete. System ready for the next simulation.")
 
-    return True
-    
+    return status

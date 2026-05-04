@@ -16,18 +16,26 @@ interpolation_points = 100
 # Usage
 
 
-def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE, MODE, INIT_FROM_PREVIOUS, PREVIOUS_SIMULATION_PATH, STUDY_PARAMETER_NAME = None, STUDY_PARAMETER_FILE = None, STUDY_PARAMETER = None):
+def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_TO_USE, MODE, INIT_FROM_PREVIOUS, PREVIOUS_SIMULATION_PATH, TURBULENCE_MODEL, STUDY_PARAMETER_NAME = None, STUDY_PARAMETER_FILE = None, STUDY_PARAMETER = None):
 
  
     #1. duplicate right Core Template to target directory (AMI or RMF approach)
 
     if MODE == "MRF":
 
-        core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template MRF")
+        if TURBULENCE_MODEL == "kOmegaSST":
+            core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template MRF - kOmegaSST")    
+        elif TURBULENCE_MODEL == "kEpsilon":
+            core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template MRF - kEpsilon")
+
     
     elif MODE == "AMI":
 
-        core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template AMI")
+        if TURBULENCE_MODEL == "kOmegaSST":
+            core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template AMI - kOmegaSST")
+        
+        elif TURBULENCE_MODEL == "kEpsilon":
+            core_template_directory = os.path.join(MAIN_DIRECTORY, "Core Template AMI - kEpsilon")
 
     else:
         print("Unknown mode was passed to the pipeline...")

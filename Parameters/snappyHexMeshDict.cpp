@@ -1,6 +1,6 @@
 castellatedMesh true;
 snap true;
-addLayers true;
+addLayers false;
 
 maxLocalCells 100000;
 maxGlobalCells 2000000;
@@ -30,8 +30,8 @@ multiRegionFeatureSnap true;
 relativeSizes false;
 propellerTipSurfaceLayers 5;
 expansionRatio 1.15;
-firstLayerThickness 0.00002;
-minThickness 0.000005;
+firstLayerThickness 0.00006;
+minThickness 0.000006;
 nGrow 0;
 featureAngle 180;
 addLayersnRelaxIter 5;
@@ -41,7 +41,7 @@ nSmoothThickness 20;
 maxFaceThicknessRatio 2.0;
 maxThicknessToMedialRatio 1.0;
 minMedialAxisAngle 30;
-nLayerIter 200;
+nLayerIter 50;
 nBufferCellsNoExtrude 0;
 
 maxNonOrtho 65;
@@ -50,4 +50,4 @@ maxInternalSkewness 4;
 maxConcave 80;
 minVol 1e-13;
 mergeTolerance 1e-6;
-nSmoothScale 6;
+nSmoothScale 4;

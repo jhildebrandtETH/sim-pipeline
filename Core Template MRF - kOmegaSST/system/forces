@@ -1,0 +1,22 @@
+forces
+{
+    type          forces;
+
+    libs          ("libforces.so");
+
+    writeControl  timeStep;
+    timeInterval  1;
+
+    log           yes;
+
+    patches       ("propeller.*");
+    // rho           rhoInf;     // Indicates incompressible
+    rho           rhoInf;     // Indicates incompressible
+    rhoInf        1.225;          // Redundant for incompressible
+
+    CofR          (0 0 0);    // Rotation around centre line of propeller
+    pitchAxis     (0 1 0);
+}
+
+
+// ************************************************************************* //

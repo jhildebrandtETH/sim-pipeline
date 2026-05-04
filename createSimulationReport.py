@@ -9,7 +9,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 
-def create_simulation_report(case_path, rpm, mode, output_pdf=None):
+def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=None):
 
     def create_yplus_distribution_plot(case_path, report_dir, patch_name="propellerTip"):
         def get_latest_time_dir(case_path):
@@ -500,6 +500,9 @@ def create_simulation_report(case_path, rpm, mode, output_pdf=None):
 
     y -= 22
     c.drawString(50, y, f"Mode: {mode}")
+
+    y -= 22
+    c.drawString(50, y, f"Turbulence Model: {turbulence_model}")
 
     y -= 22
     c.drawString(50, y, f"RPM: {rpm}")

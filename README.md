@@ -42,7 +42,8 @@ The CLI is structured into:
 --rpms           Rotation speeds
 --mode           AMI | MRF
 --cores          Number of cores
---field-init     on | off
+--field-init     on | off (default: on)
+--turbulence     kOmegaSST | kEpsilon
 ```
 
 ### 2. Feature Flags (activated if present)
@@ -59,10 +60,61 @@ The CLI is structured into:
 ## Basic Usage
 
 ```bash
-python main.py   --sim-dir <path>   --geometries <list>   --rpms <list>   --mode <AMI|MRF>   --cores <int>   --field-init <on|off>
+python main.py   --sim-dir <path>   --geometries <list>   --rpms <list>   --mode <AMI|MRF>   --cores <int> --turbulence <kOmegaSST|kEpsilon>  --field-init <on|off>
 ```
 
+
 ---
+
+## Turbulence Models & Wall Treatment
+
+### kOmegaSST (Low-Re, no wall functions)
+
+- Fully resolves the boundary layer
+- Requires **y+ ≈ 1**
+- Higher computational cost
+- Used for accurate simulations
+
+---
+
+### kEpsilon (Wall function approach)
+
+- Uses wall functions
+- Does not resolve viscous sublayer
+- Requires **y+ ≈ 30–100**
+- Faster and more robust
+
+---
+
+## Important Concept
+
+- Turbulence model and wall treatment are conceptually different
+- In this pipeline:
+
+```
+kOmegaSST → no wall functions
+kEpsilon  → wall functions
+```
+
+This is handled automatically via template selection.
+
+---
+
+## Template Selection
+
+Templates follow:
+
+```
+Core Template <MODE> - <TURBULENCE>
+```
+
+Examples:
+
+- Core Template AMI - kOmegaSST
+- Core Template MRF - kEpsilon
+
+---
+
 
 ## Configuration Options
 
@@ -163,7 +215,37 @@ Examples:
 ### Standard Run
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI   --cores 24   --field-init on
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI   --cores 24 --turbulence kOmegaSST
+```
+
+---
+
+## Examples
+
+### High-fidelity (kOmegaSST & AMI)
+
+```bash
+python main.py \
+  --sim-dir /scratch \
+  --geometries 10x7E \
+  --rpms 7000 \
+  --mode AMI \
+  --cores 24 \
+  --turbulence kOmegaSST
+```
+
+---
+
+### Fast (kEpsilon & MRF)
+
+```bash
+python main.py \
+  --sim-dir /scratch \
+  --geometries 10x7E \
+  --rpms 7000 \
+  --mode MRF \
+  --cores 24 \
+  --turbulence kEpsilon
 ```
 
 ---
@@ -179,7 +261,7 @@ python main.py   --sim-dir /scratch/simulations   --resume
 ### Mesh-Only Run
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI   --cores 24   --mesh-only
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI  --turbulence kOmegaSST --cores 24   --mesh-only
 ```
 
 ---
@@ -187,7 +269,7 @@ python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 70
 ### Allow-Bad-Mesh Run
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI   --cores 24   --allow-bad-mesh
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI  --turbulence kOmegaSST --cores 24   --allow-bad-mesh
 ```
 
 ---
@@ -195,7 +277,7 @@ python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 70
 ### Parameter Study
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI   --cores 24   --study   --study-parameter refinementLevel   --study-file snappyHexMeshDict   --study-values 3...4...5
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI --turbulence kOmegaSST  --cores 24   --study   --study-parameter refinementLevel   --study-file snappyHexMeshDict   --study-values 3...4...5
 ```
 
 ---
@@ -226,6 +308,4 @@ python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 70
 
 Planned improvements:
 
-- Turbulence model selection (`kOmega`, `kEpsilon`)
 - Automated y⁺ targeting
-- Mesh convergence automation

@@ -148,8 +148,23 @@ def update_case_status(simulations_directory: Path, folder_name: str, new_status
 
 
 def create_simulation_order(args, simulations_directory: Path):
+
+    simulations_directory.mkdir(parents=True, exist_ok=True)
+
+    json_path = simulations_directory / "simulation_order.json"
+
+    # Enforce: one order = one directory
+    if json_path.exists():
+        raise FileExistsError(
+            f"Simulation order already exists in this directory:\n"
+            f"{json_path}\n\n"
+            f"One simulation order must have its own simulation_run folder. "
+            f"Create a new directory or use --resume."
+        )
+
     batch = {
         "mode": args.mode,
+        "turbulence" : args.turbulence,
         "geometries": args.geometries,
         "rpms": args.rpms,
         "cores": args.cores,
@@ -184,6 +199,7 @@ def create_simulation_order(args, simulations_directory: Path):
                 "geometry": geometry,
                 "rpm": rpm,
                 "mode": args.mode,
+                "turbulence" : args.turbulence,
                 "cores": args.cores,
                 "mesh_only" : args.mesh_only,
                 "allow_bad_mesh" : args.allow_bad_mesh,
@@ -206,6 +222,7 @@ def create_simulation_order(args, simulations_directory: Path):
                     "geometry": geometry,
                     "rpm": rpm,
                     "mode": args.mode,
+                    "turbulence" : args.turbulence,
                     "cores": args.cores,
                     "mesh_only" : args.mesh_only,
                     "allow_bad_mesh" : args.allow_bad_mesh,
@@ -217,7 +234,6 @@ def create_simulation_order(args, simulations_directory: Path):
                     "status": "pending"
                 })
 
-    json_path = simulations_directory / "simulation_order.json"
 
     with open(json_path, "w") as f:
         json.dump(batch, f, indent=4)

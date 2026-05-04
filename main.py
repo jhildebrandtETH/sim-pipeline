@@ -25,14 +25,12 @@ def main() -> None:
     parser.add_argument("--geometries", nargs="+")
     parser.add_argument("--rpms", nargs="+", type=int)
     parser.add_argument("--mode", choices=["AMI", "MRF"])
+    parser.add_argument("--turbulence", choices = ["kEpsilon", "kOmegaSST"])
     parser.add_argument("--field-init", default="on", choices=["on", "off"])
     parser.add_argument("--study", action="store_true")
     parser.add_argument("--study-file")
     parser.add_argument("--study-parameter")
-    parser.add_argument(
-        "--study-values",
-        help="Study values separated by '...'. Example: '(8 24 8)...(16 48 16)'",
-    )
+    parser.add_argument("--study-values", help="Study values separated by '...'. Example: '(8 24 8)...(16 48 16)'",)
     parser.add_argument("--cores", type=int)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--mesh-only", action="store_true")
@@ -66,6 +64,7 @@ def main() -> None:
         args.cores = order["cores"]
         args.mesh_only = order["mesh_only"]
         args.allow_bad_mesh = order["allow_bad_mesh"]
+        args.turbulence = order["turbulence"]
 
         print(f"\n--- Resuming simulation batch from: {simulations_directory} ---")
         print(f"Mode: {args.mode}")
@@ -84,6 +83,8 @@ def main() -> None:
             missing.append("--mode")
         if args.cores is None:
             missing.append("--cores")
+        if args.turbulence is None:
+            missing.append("--turbulence")
 
         if missing:
             parser.error(
@@ -166,6 +167,7 @@ def main() -> None:
                     MODE=mode,
                     INIT_FROM_PREVIOUS=use_previous_init,
                     PREVIOUS_SIMULATION_PATH=previous_simulation_path,
+                    TURBULENCE_MODEL = args.turbulence
                 )
 
                 if is_study_case:
@@ -182,39 +184,37 @@ def main() -> None:
 
             # ---------------- SOLVER START ----------------
             if status == "preprocessing_done":
-                print("Starting OpenFOAM solver...")
+                print("Starting OpenFOAM...")
                 update_case_status(simulations_directory, folder_name, "solver_running")
 
-                try:
-                    openfoamSimulation(
-                        resume=False,
-                        simulation_name=folder_name,
-                        simulation_working_directory=simulation_path,
-                        convergence_tolerance=convergence_tolerance,
-                        rpm_count=rpm,
-                        convergence_window_revolutions=convergence_monitoring_revolutions_count,
-                        MODE=mode,
-                        initialize_from_previous=use_previous_init,
-                        previous_simulation_path=previous_simulation_path,
-                        NUMBER_OF_CORES=args.cores,
-                        MESH_ONLY=args.mesh_only,
-                        ALLOW_BAD_MESH=args.allow_bad_mesh,
-                    )
-                except Exception:
-                    print(
-                        f"Solver failed/interrupted for {folder_name}. "
-                        "Status remains 'solver_running' for resume."
-                    )
-                    raise
+                success = openfoamSimulation(
+                    resume=False,
+                    simulation_name=folder_name,
+                    simulation_working_directory=simulation_path,
+                    convergence_tolerance=convergence_tolerance,
+                    rpm_count=rpm,
+                    convergence_window_revolutions=convergence_monitoring_revolutions_count,
+                    MODE=mode,
+                    initialize_from_previous=use_previous_init,
+                    previous_simulation_path=previous_simulation_path,
+                    NUMBER_OF_CORES=args.cores,
+                    MESH_ONLY=args.mesh_only,
+                    ALLOW_BAD_MESH=args.allow_bad_mesh,
+                )
 
-                update_case_status(simulations_directory, folder_name, "solver_done")
-                status = "solver_done"
+                if success:
+                    update_case_status(simulations_directory, folder_name, "solver_done")
+                    status = "solver_done"
 
-                if args.mesh_only:
-                    update_case_status(simulations_directory, folder_name, "postprocessing_done")
-                    status = "postprocessing_done"
-                    
-                
+                    if args.mesh_only:
+                        update_case_status(simulations_directory, folder_name, "postprocessing_done")
+                        status = "postprocessing_done"
+
+
+                else:
+                    update_case_status(simulations_directory, folder_name, "solver_running")
+                    break
+
                 continue
 
             # ---------------- SOLVER RESUME ----------------
@@ -291,6 +291,7 @@ def main() -> None:
                     SIMULATION_WORKING_DIRECTORY=simulation_path,
                     RPM_COUNT=rpm,
                     MODE=mode,
+                    TURBULENCE_MODEL=args.turbulence
                 )
                 update_case_status(simulations_directory, folder_name, "postprocessing_done")
                 status = "postprocessing_done"
