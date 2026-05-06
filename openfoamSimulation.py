@@ -173,7 +173,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
         print("Deleting processor folders...")
 
-        delete_processor_folders_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && rm -rf processor* > log.deleteProcessors'"
+        delete_processor_folders_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && rm -rf processor*'"
 
         result = container.exec_run(delete_processor_folders_cmd, stream=True)
 
@@ -302,6 +302,17 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print(f"Removing container '{container.name}'...")
     container.remove()
+
+    print("Deleting processor folders...")
+
+    delete_processor_folders_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && rm -rf processor*'"
+
+    result = container.exec_run(delete_processor_folders_cmd, stream=True)
+
+    for _ in result.output:
+        pass
+
+    print("Deleted processor folder...")
 
     print("Cleanup complete. System ready for the next simulation.")
 
