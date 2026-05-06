@@ -6,7 +6,8 @@ Automated pipeline for generating meshes and running OpenFOAM simulations of UAV
 
 ### Features
 
-- MRF (steady) and AMI (transient) simulation modes  
+- MRF (steady) and AMI (transient) simulation modes 
+- kEpsilon and kOmegaSST turbulence are supported
 - Fully automated meshing (blockMesh + snappyHexMesh)  
 - Parallel execution  
 - Convergence monitoring (thrust + residuals)  
