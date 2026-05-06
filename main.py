@@ -137,6 +137,18 @@ def main() -> None:
 
         print(f"\n--- Case: {folder_name} | Status: {status} ---")
 
+        # Failed cases are terminal in normal mode to avoid infinite retry loops.
+        # With --resume, failed cases are reactivated and handled by the existing
+        # solver_running resume logic below.
+        if status == "failed":
+            if args.resume:
+                print("Reactivating failed case for resume...")
+                update_case_status(simulations_directory, folder_name, "solver_running")
+                status = "solver_running"
+            else:
+                print("Skipping failed case. Use --resume to resume it.")
+                continue
+
         if status == "postprocessing_done":
             print("Skipping completed case.")
             if not is_study_case:
@@ -212,7 +224,8 @@ def main() -> None:
 
 
                 else:
-                    update_case_status(simulations_directory, folder_name, "solver_running")
+                    update_case_status(simulations_directory, folder_name, "failed")
+                    status = "failed"
                     break
 
                 continue
@@ -276,7 +289,8 @@ def main() -> None:
 
 
                 else:
-                    update_case_status(simulations_directory, folder_name, "solver_running")
+                    update_case_status(simulations_directory, folder_name, "failed")
+                    status = "failed"
                     break
 
                 continue

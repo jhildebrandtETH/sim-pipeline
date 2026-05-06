@@ -154,6 +154,7 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
                 print("decomposePar finished...")
         else:
             print("Mesh is not OK... stopping this case")
+            status = False
     else:
         print("Preparing to resume...")
 
