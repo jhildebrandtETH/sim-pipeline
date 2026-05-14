@@ -308,6 +308,7 @@ def create_simulation_order(args, simulations_directory: Path):
         "cores": args.cores,
         "field_init": args.field_init,
         "mesh_only" : args.mesh_only,
+        "end_on" : args.end_on,
         "allow_bad_mesh" : args.allow_bad_mesh,
         "study": args.study,
         "study_file": getattr(args, "study_file", None),
@@ -340,6 +341,7 @@ def create_simulation_order(args, simulations_directory: Path):
                 "turbulence" : args.turbulence,
                 "cores": args.cores,
                 "mesh_only" : args.mesh_only,
+                "end_on" : args.end_on,
                 "allow_bad_mesh" : args.allow_bad_mesh,
                 "field_init": args.field_init,
                 "study": args.study,
@@ -363,6 +365,7 @@ def create_simulation_order(args, simulations_directory: Path):
                     "turbulence" : args.turbulence,
                     "cores": args.cores,
                     "mesh_only" : args.mesh_only,
+                    "end_on" : args.end_on,
                     "allow_bad_mesh" : args.allow_bad_mesh,
                     "field_init": args.field_init,
                     "study": args.study,
@@ -552,8 +555,28 @@ def run_convergence_monitor(
     tolerance,
     check_interval,
     timestep: str,
+    convergence_mode: str = "convergence",
     stop_event=None,
 ):
+    """
+    Monitor convergence and stop the OpenFOAM simulation by reducing endTime.
+
+    convergence_mode options:
+        "force_convergence"     -> stop when rolling 1-revolution thrust averages are stable
+        "residual_convergence" -> stop when residual slopes over the last revolution are stable
+        "convergence"      -> stop only after force convergence AND residual convergence
+
+    In all modes, at least one full revolution of data is required before any
+    convergence decision is made.
+    """
+
+    convergence_mode = convergence_mode.strip().lower()
+
+    if convergence_mode not in {"force_convergence", "residual_convergence", "convergence"}:
+        raise ValueError(
+            "convergence_mode must be one of: 'force_convergence', 'residual_convergence', or 'convergence'."
+        )
+
     force_file = os.path.join(
         main_sim_folder, "postProcessing", "forcesBlades", timestep, "forces.dat"
     )
@@ -596,8 +619,125 @@ def run_convergence_monitor(
                         return None
         return None
 
+    def set_control_dict_end_time(stop_time: float) -> bool:
+        if not os.path.exists(control_dict):
+            print(f"ERROR: controlDict not found at: {control_dict}")
+            return False
+
+        with open(control_dict, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+        with open(control_dict, "w", encoding="utf-8") as f:
+            for line in lines:
+                if re.match(r"^\s*endTime\s+", line):
+                    f.write(f"endTime         {stop_time + 1e-8};\n")
+                else:
+                    f.write(line)
+
+        print("Simulation stop command sent to controlDict.")
+        return True
+
+    def read_latest_time_from_residuals():
+        if not os.path.exists(residuals_file):
+            return None
+
+        latest_time = None
+
+        with open(residuals_file, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                parts = line.split()
+
+                try:
+                    latest_time = float(parts[0])
+                except (ValueError, IndexError):
+                    continue
+
+        return latest_time
+
+    def read_force_data():
+        if not os.path.exists(force_file):
+            return None, None
+
+        times = []
+        thrusts = []
+
+        with open(force_file, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                parts = line.replace("(", " ").replace(")", " ").split()
+
+                if len(parts) < 3:
+                    continue
+
+                try:
+                    t = float(parts[0])
+                    thrust_y = float(parts[2])
+                except ValueError:
+                    continue
+
+                times.append(t)
+                thrusts.append(thrust_y)
+
+        if not times:
+            return None, None
+
+        times = np.asarray(times, dtype=float)
+        thrusts = np.asarray(thrusts, dtype=float)
+
+        sort_idx = np.argsort(times)
+        return times[sort_idx], thrusts[sort_idx]
+
+    def get_yplus_stats(rev_window_start: float, rev_window_end: float):
+        avg_yplus = float("nan")
+        max_yplus = float("nan")
+        min_yplus = float("nan")
+
+        if os.path.exists(yplus_file):
+            with open(yplus_file, "r", encoding="utf-8", errors="ignore") as f:
+                yplus_lines = [
+                    l.strip()
+                    for l in f
+                    if l.strip() and not l.strip().startswith("#")
+                ]
+
+            yplus_min_vals = []
+            yplus_max_vals = []
+            yplus_avg_vals = []
+
+            for line in yplus_lines:
+                parts = line.split()
+
+                if len(parts) >= 5 and parts[1] == "propellerTip":
+                    try:
+                        t = float(parts[0])
+                        y_min = float(parts[2])
+                        y_max = float(parts[3])
+                        y_avg = float(parts[4])
+                    except ValueError:
+                        continue
+
+                    if rev_window_start <= t <= rev_window_end:
+                        yplus_min_vals.append(y_min)
+                        yplus_max_vals.append(y_max)
+                        yplus_avg_vals.append(y_avg)
+
+            if yplus_avg_vals:
+                avg_yplus = float(np.mean(yplus_avg_vals))
+                max_yplus = float(np.max(yplus_max_vals))
+                min_yplus = float(np.min(yplus_min_vals))
+
+        return avg_yplus, max_yplus, min_yplus
+
     print(f"RPM: {rpm}")
     print(f"One revolution time: {rev_time:.6f} s")
+    print(f"Convergence mode: {convergence_mode}")
 
     while True:
         if should_stop_monitor():
@@ -605,47 +745,71 @@ def run_convergence_monitor(
             return False
 
         try:
-            if not os.path.exists(force_file):
-                print("Waiting for force file to be created...")
+            # -----------------------------------------------------------------
+            # RESIDUALS-ONLY MODE
+            # -----------------------------------------------------------------
+            if convergence_mode == "residual_convergence":
+                latest_time = read_latest_time_from_residuals()
+
+                if latest_time is None:
+                    print("Waiting for residuals file to be created or filled...")
+                    if sleep_or_stop():
+                        return False
+                    continue
+
+                end_time = get_control_dict_end_time(control_dict)
+
+                if end_time is not None and latest_time >= end_time - 1e-8:
+                    print(
+                        f"\n>>> Simulation reached endTime={end_time} "
+                        f"without convergence <<<"
+                    )
+                    return False
+
+                if latest_time < rev_time:
+                    print(
+                        f"Waiting for enough data: {latest_time:.4f}/{rev_time:.4f} s "
+                        f"({latest_time / rev_time:.2f}/1.00 rev)"
+                    )
+                    if sleep_or_stop():
+                        return False
+                    continue
+
+                avg_yplus, max_yplus, min_yplus = get_yplus_stats(
+                    latest_time - rev_time,
+                    latest_time,
+                )
+
+                print(
+                    f"Time: {latest_time:.4f} | "
+                    f"Checking residual convergence over last revolution | "
+                    f"Avg y+: {avg_yplus:.2f} | "
+                    f"Max y+: {max_yplus:.2f} | "
+                    f"Min y+: {min_yplus:.2f}"
+                )
+
+                if check_residuals(residuals_file, rev_time):
+                    print(
+                        f"\n>>> SUFFICIENT RESIDUAL CONVERGENCE "
+                        f"REACHED AT {latest_time}s <<<"
+                    )
+
+                    return set_control_dict_end_time(latest_time)
+
                 if sleep_or_stop():
                     return False
                 continue
 
-            times = []
-            thrusts = []
+            # -----------------------------------------------------------------
+            # FORCE OR BOTH MODE
+            # -----------------------------------------------------------------
+            times, thrusts = read_force_data()
 
-            with open(force_file, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-
-                    parts = line.replace("(", " ").replace(")", " ").split()
-
-                    if len(parts) < 3:
-                        continue
-
-                    try:
-                        t = float(parts[0])
-                        thrust_y = float(parts[2])
-                    except ValueError:
-                        continue
-
-                    times.append(t)
-                    thrusts.append(thrust_y)
-
-            if not times:
-                print("Force file exists but contains no usable data yet.")
+            if times is None:
+                print("Waiting for force file to be created or filled...")
                 if sleep_or_stop():
                     return False
                 continue
-
-            times = np.asarray(times, dtype=float)
-            thrusts = np.asarray(thrusts, dtype=float)
-
-            sort_idx = np.argsort(times)
-            times = times[sort_idx]
-            thrusts = thrusts[sort_idx]
 
             latest_time = float(times[-1])
 
@@ -708,43 +872,10 @@ def run_convergence_monitor(
             rev_window_start = latest_sim_time - rev_time
             rev_window_end = latest_sim_time
 
-            avg_yplus = float("nan")
-            max_yplus = float("nan")
-            min_yplus = float("nan")
-
-            if os.path.exists(yplus_file):
-                with open(yplus_file, "r", encoding="utf-8", errors="ignore") as f:
-                    yplus_lines = [
-                        l.strip()
-                        for l in f
-                        if l.strip() and not l.strip().startswith("#")
-                    ]
-
-                yplus_min_vals = []
-                yplus_max_vals = []
-                yplus_avg_vals = []
-
-                for line in yplus_lines:
-                    parts = line.split()
-
-                    if len(parts) >= 5 and parts[1] == "propellerTip":
-                        try:
-                            t = float(parts[0])
-                            y_min = float(parts[2])
-                            y_max = float(parts[3])
-                            y_avg = float(parts[4])
-                        except ValueError:
-                            continue
-
-                        if rev_window_start <= t <= rev_window_end:
-                            yplus_min_vals.append(y_min)
-                            yplus_max_vals.append(y_max)
-                            yplus_avg_vals.append(y_avg)
-
-                if yplus_avg_vals:
-                    avg_yplus = float(np.mean(yplus_avg_vals))
-                    max_yplus = float(np.max(yplus_max_vals))
-                    min_yplus = float(np.min(yplus_min_vals))
+            avg_yplus, max_yplus, min_yplus = get_yplus_stats(
+                rev_window_start,
+                rev_window_end,
+            )
 
             if len(avg_vals) < avg_history_count:
                 print(
@@ -764,35 +895,41 @@ def run_convergence_monitor(
             std_dev = float(np.std(avg_thrust_history))
             avg_val = float(np.mean(avg_thrust_history))
 
+            force_converged = std_dev < tolerance
+
             print(
                 f"Time: {latest_sim_time:.4f} | "
                 f"Current 1-rev Avg Thrust: {current_avg_thrust:.4f} | "
                 f"Avg Thrust: {avg_val:.4f} | "
                 f"StdDev(rolling 1-rev avgs): {std_dev:.6f} | "
+                f"Force converged: {force_converged} | "
                 f"Avg y+: {avg_yplus:.2f} | "
                 f"Max y+: {max_yplus:.2f} | "
                 f"Min y+: {min_yplus:.2f}"
             )
 
-            if std_dev < tolerance and check_residuals(residuals_file, rev_time):
-                print(f"\n>>> SUFFICIENT CONVERGENCE REACHED AT {latest_sim_time}s <<<")
+            if convergence_mode == "force_convergence":
+                if force_converged:
+                    print(
+                        f"\n>>> SUFFICIENT FORCE CONVERGENCE "
+                        f"REACHED AT {latest_sim_time}s <<<"
+                    )
 
-                if not os.path.exists(control_dict):
-                    print(f"ERROR: controlDict not found at: {control_dict}")
-                    return False
+                    return set_control_dict_end_time(latest_sim_time)
 
-                with open(control_dict, "r", encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()
+            elif convergence_mode == "convergence":
+                # Keep the previous logic: residuals are checked only after
+                # force convergence has first been reached.
+                if force_converged:
+                    if check_residuals(residuals_file, rev_time):
+                        print(
+                            f"\n>>> SUFFICIENT FORCE AND RESIDUAL "
+                            f"CONVERGENCE REACHED AT {latest_sim_time}s <<<"
+                        )
 
-                with open(control_dict, "w", encoding="utf-8") as f:
-                    for line in lines:
-                        if re.match(r"^\s*endTime\s+", line):
-                            f.write(f"endTime         {latest_sim_time + 1e-8};\n")
-                        else:
-                            f.write(line)
-
-                print("Simulation stop command sent to controlDict.")
-                return True
+                        return set_control_dict_end_time(latest_sim_time)
+                else:
+                    print("Force convergence not reached yet; residuals not checked.")
 
         except Exception as e:
             print(f"Error during monitoring: {e}")

@@ -23,6 +23,7 @@ def openfoamSimulation(
     NUMBER_OF_CORES,
     resume,
     MESH_ONLY,
+    END_ON_MODE,
     ALLOW_BAD_MESH,
     initialize_from_previous=False,
     previous_simulation_path=None,
@@ -178,25 +179,28 @@ def openfoamSimulation(
             else:
                 timestep_str = "0"
 
-            monitor_stop_event = threading.Event()
+            if not END_ON_MODE == "time":
 
-            monitor_thread = threading.Thread(
-                target=run_convergence_monitor,
-                kwargs={
-                    "main_sim_folder": simulation_working_directory,
-                    "rpm": rpm_count,
-                    "avg_history_count": convergence_window_revolutions,
-                    "tolerance": convergence_tolerance,
-                    "check_interval": convergence_check_interval,
-                    "timestep": timestep_str,
-                    "stop_event": monitor_stop_event,
-                },
-            )
+                monitor_stop_event = threading.Event()
 
-            monitor_thread.daemon = True
+                monitor_thread = threading.Thread(
+                    target=run_convergence_monitor,
+                    kwargs={
+                        "main_sim_folder": simulation_working_directory,
+                        "rpm": rpm_count,
+                        "avg_history_count": convergence_window_revolutions,
+                        "tolerance": convergence_tolerance,
+                        "convergence_mode" : END_ON_MODE,
+                        "check_interval": convergence_check_interval,
+                        "timestep": timestep_str,
+                        "stop_event": monitor_stop_event,
+                    },
+                )
 
-            print(f"Launching Background Convergence Monitor... Timestep is: {timestep_str}")
-            monitor_thread.start()
+                monitor_thread.daemon = True
+
+                print(f"Launching Background Convergence Monitor... Timestep is: {timestep_str}")
+                monitor_thread.start()
 
             simRun_cmd = (
                 f"bash -c 'source /opt/openfoam13/etc/bashrc && "
@@ -209,18 +213,22 @@ def openfoamSimulation(
                 return False
             print("pimpleFoamSolver finished...")
 
-            # Solver has ended. Make sure the monitor from this case cannot continue
-            # while the next case starts preprocessing.
-            if monitor_stop_event is not None:
-                monitor_stop_event.set()
 
-            if monitor_thread is not None and monitor_thread.is_alive():
-                monitor_thread.join(timeout=5)
+            if not END_ON_MODE == "time":
 
-            if monitor_thread is not None and not monitor_thread.is_alive():
-                print("Convergence monitor ended.")
-            else:
-                print("WARNING: Convergence monitor did not stop within timeout.")
+                # Solver has ended. Make sure the monitor from this case cannot continue
+                # while the next case starts preprocessing.
+
+                if monitor_stop_event is not None:
+                    monitor_stop_event.set()
+
+                if monitor_thread is not None and monitor_thread.is_alive():
+                    monitor_thread.join(timeout=5)
+
+                if monitor_thread is not None and not monitor_thread.is_alive():
+                    print("Convergence monitor ended.")
+                else:
+                    print("WARNING: Convergence monitor did not stop within timeout.")
 
             reconstructPar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && reconstructPar > log.reconstructPar'"
             print("reconstructPar started...")

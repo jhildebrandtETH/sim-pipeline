@@ -35,6 +35,7 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--mesh-only", action="store_true")
     parser.add_argument("--allow-bad-mesh", action="store_true")
+    parser.add_argument("--end-on", choices=["time", "convergence", "force_convergence", "residual_convergence"], default="convergence")
 
 
     args = parser.parse_args()
@@ -65,6 +66,7 @@ def main() -> None:
         args.mesh_only = order["mesh_only"]
         args.allow_bad_mesh = order["allow_bad_mesh"]
         args.turbulence = order["turbulence"]
+        args.end_on = order["end_on"]
 
         print(f"\n--- Resuming simulation batch from: {simulations_directory} ---")
         print(f"Mode: {args.mode}")
@@ -85,6 +87,8 @@ def main() -> None:
             missing.append("--cores")
         if args.turbulence is None:
             missing.append("--turbulence")
+        if args.end_on is None:
+            missing.append("--end-on")
 
         if missing:
             parser.error(
@@ -208,6 +212,7 @@ def main() -> None:
                     rpm_count=rpm,
                     convergence_window_revolutions=convergence_monitoring_revolutions_count,
                     MODE=mode,
+                    END_ON_MODE=args.end_on,
                     TURBULENCE_MODEL= args.turbulence,
                     initialize_from_previous=use_previous_init,
                     previous_simulation_path=previous_simulation_path,
@@ -274,6 +279,7 @@ def main() -> None:
                     rpm_count=rpm,
                     convergence_window_revolutions=convergence_monitoring_revolutions_count,
                     MODE=mode,
+                    END_ON_MODE= args.end_on,
                     TURBULENCE_MODEL= args.turbulence,
                     initialize_from_previous=use_previous_init,
                     previous_simulation_path=previous_simulation_path,
