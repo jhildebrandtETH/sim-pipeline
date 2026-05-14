@@ -9,12 +9,10 @@ Automated pipeline for generating meshes and running OpenFOAM simulations of UAV
 - MRF (steady) and AMI (transient) simulation modes 
 - kEpsilon and kOmegaSST turbulence are supported
 - Fully automated meshing (blockMesh + snappyHexMesh)  
-- Parallel execution  
 - Convergence monitoring (thrust + residuals)  
 - Postprocessing & PDF report generation  
 - Parameter study support  
 - Robust resume capability  
-- Mesh-only mode for tuning  
 
 ---
 
@@ -45,6 +43,7 @@ The CLI is structured into:
 --cores          Number of cores
 --field-init     on | off (default: on)
 --turbulence     kOmegaSST | kEpsilon
+--end-on         time | force_convergence | residual_convergence | convergence
 ```
 
 ### 2. Feature Flags (activated if present)
@@ -211,12 +210,27 @@ Examples:
 
 ---
 
+## End-On Feature
+
+- specifies what event shoud trigger each simulation to end:
+
+- time : standard endTime defined in controlDict (no monitoring)
+- force_convergence : only monitors thrust convergence
+- residual_convergence : only monitors residual convergence
+- convergence : monitors both force and residual convergence (first priority thurst convergence, then residual convergence)
+
+```bash
+<geometry>_<rpm>RPM_<parameter>_<value>
+```
+
+---
+
 ## Examples
 
 ### Standard Run
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI   --cores 24 --turbulence kOmegaSST
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI  --end-on convergence --cores 24 --turbulence kOmegaSST
 ```
 
 ---
@@ -262,7 +276,7 @@ python main.py   --sim-dir /scratch/simulations   --resume
 ### Mesh-Only Run
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI  --turbulence kOmegaSST --cores 24   --mesh-only
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI --end-on force_convergence  --turbulence kOmegaSST --cores 24   --mesh-only
 ```
 
 ---
@@ -270,7 +284,7 @@ python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 70
 ### Allow-Bad-Mesh Run
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI  --turbulence kOmegaSST --cores 24   --allow-bad-mesh
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI -end-on force_convergence --turbulence kOmegaSST --cores 24   --allow-bad-mesh
 ```
 
 ---
@@ -278,7 +292,7 @@ python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 70
 ### Parameter Study
 
 ```bash
-python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI --turbulence kOmegaSST  --cores 24   --study   --study-parameter refinementLevel   --study-file snappyHexMeshDict   --study-values 3...4...5
+python main.py   --sim-dir /scratch/simulations   --geometries 10x7E   --rpms 7000   --mode AMI --turbulence kOmegaSST -end-on force_convergence  --cores 24   --study   --study-parameter refinementLevel   --study-file snappyHexMeshDict   --study-values 3...4...5
 ```
 
 ---
