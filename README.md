@@ -60,7 +60,7 @@ The CLI is structured into:
 ## Basic Usage
 
 ```bash
-python main.py   --sim-dir <path>   --geometries <list>   --rpms <list>   --mode <AMI|MRF>   --cores <int> --turbulence <kOmegaSST|kEpsilon>  --field-init <on|off>
+python main.py   --sim-dir <path>   --geometries <list>   --rpms <list>   --mode <AMI|MRF> --end-on <time|convergence|force_convergence|residual_convergence>  --cores <int> --turbulence <kOmegaSST|kEpsilon>  --field-init <on|off>
 ```
 
 
