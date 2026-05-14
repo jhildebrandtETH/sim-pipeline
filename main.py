@@ -133,7 +133,7 @@ def main() -> None:
         simulation_path.mkdir(parents=True, exist_ok=True)
 
         stl_path = pipeline_main_directory / "STLs" / f"{geometry}.stl"
-        is_study_case = "study_value" in case
+        is_study_case = case.get("study", False)
 
         print(f"\n--- Case: {folder_name} | Status: {status} ---")
 
@@ -156,10 +156,11 @@ def main() -> None:
             continue
 
         previous_simulation_path = previous_simulation_by_geometry.get(geometry)
+
         use_previous_init = (
-            args.field_init == "on"
-            and previous_simulation_path is not None
-            and not is_study_case
+        args.field_init == "on"
+        and previous_simulation_path is not None
+        and not is_study_case
         )
 
         # Inner loop allows a clean restart to return to preprocessing

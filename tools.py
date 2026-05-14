@@ -14,6 +14,25 @@ import re
 from pathlib import Path
 import re
 
+def safe_exec(container, cmd, description="command", print_output=False):
+    try:
+        container.reload()
+
+        if container.status != "running":
+            print(f"Container is not running before {description}.")
+            return False
+
+        result = container.exec_run(cmd, stream=True)
+
+        for line in result.output:
+            if print_output:
+                print(line.decode("utf-8", errors="ignore").strip())
+
+        return True
+
+    except Exception as e:
+        print(f"{description} failed: {e}")
+        return False
 
 def processor_deletion_is_safe(
     PATH_TO_CONTROL_DICT_PARAMETERS,
@@ -532,27 +551,9 @@ def run_convergence_monitor(
     avg_history_count,
     tolerance,
     check_interval,
-    timestep:str
+    timestep: str,
+    stop_event=None,
 ):
-    """
-    Monitor an OpenFOAM simulation and stop it once converged.
-
-    Improved logic:
-    - Reconstruct all possible rolling 1-revolution averaged thrust values
-      directly from forces.dat at every check
-    - Use the last avg_history_count of those values for convergence
-    - Therefore convergence no longer depends on how often this Python
-      function polls, but on how many actual force samples exist
-
-    Args:
-        main_sim_folder (str): Path to the OpenFOAM case directory.
-        rpm (float): Rotational speed in revolutions per minute.
-        avg_history_count (int): Number of rolling one-revolution averaged
-            thrust values used for the convergence std dev.
-        tolerance (float): Std-dev threshold for convergence.
-        check_interval (int | float): Seconds to wait between checks.
-    """
-
     force_file = os.path.join(
         main_sim_folder, "postProcessing", "forcesBlades", timestep, "forces.dat"
     )
@@ -566,22 +567,50 @@ def run_convergence_monitor(
 
     rev_time = 60.0 / rpm
 
+    def should_stop_monitor() -> bool:
+        return stop_event is not None and stop_event.is_set()
+
+    def sleep_or_stop() -> bool:
+        """
+        Returns True if the monitor should stop, False if normal sleep finished.
+        """
+        if stop_event is not None:
+            if stop_event.wait(check_interval):
+                print("Convergence monitor stopped by main simulation.")
+                return True
+            return False
+
+        time.sleep(check_interval)
+        return False
+
+    def get_control_dict_end_time(control_dict_path):
+        if not os.path.exists(control_dict_path):
+            return None
+
+        with open(control_dict_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.strip().startswith("endTime"):
+                    try:
+                        return float(line.split()[1].replace(";", ""))
+                    except Exception:
+                        return None
+        return None
+
     print(f"RPM: {rpm}")
     print(f"One revolution time: {rev_time:.6f} s")
 
     while True:
+        if should_stop_monitor():
+            print("Convergence monitor stopped by main simulation.")
+            return False
+
         try:
-            # ----------------------------
-            # Wait for force file
-            # ----------------------------
             if not os.path.exists(force_file):
                 print("Waiting for force file to be created...")
-                time.sleep(check_interval)
+                if sleep_or_stop():
+                    return False
                 continue
 
-            # ----------------------------
-            # Read full force data
-            # ----------------------------
             times = []
             thrusts = []
 
@@ -593,13 +622,12 @@ def run_convergence_monitor(
 
                     parts = line.replace("(", " ").replace(")", " ").split()
 
-                    # We only need time and pressure force Y
                     if len(parts) < 3:
                         continue
 
                     try:
                         t = float(parts[0])
-                        thrust_y = float(parts[2])   # Pressure Force Y
+                        thrust_y = float(parts[2])
                     except ValueError:
                         continue
 
@@ -608,7 +636,8 @@ def run_convergence_monitor(
 
             if not times:
                 print("Force file exists but contains no usable data yet.")
-                time.sleep(check_interval)
+                if sleep_or_stop():
+                    return False
                 continue
 
             times = np.asarray(times, dtype=float)
@@ -620,18 +649,27 @@ def run_convergence_monitor(
 
             latest_time = float(times[-1])
 
-            # Need at least one full revolution before first rolling average
+            # Check endTime immediately after latest solver time is known.
+            # Otherwise the monitor may wait forever if endTime is reached
+            # before enough rolling averages exist.
+            end_time = get_control_dict_end_time(control_dict)
+
+            if end_time is not None and latest_time >= end_time - 1e-8:
+                print(
+                    f"\n>>> Simulation reached endTime={end_time} "
+                    f"without convergence <<<"
+                )
+                return False
+
             if latest_time < rev_time:
                 print(
                     f"Waiting for enough data: {latest_time:.4f}/{rev_time:.4f} s "
                     f"({latest_time / rev_time:.2f}/1.00 rev)"
                 )
-                time.sleep(check_interval)
+                if sleep_or_stop():
+                    return False
                 continue
 
-            # ----------------------------
-            # Build ALL rolling 1-rev averages from current file
-            # ----------------------------
             csum = np.concatenate(([0.0], np.cumsum(thrusts)))
             avg_times = []
             avg_vals = []
@@ -643,7 +681,6 @@ def run_convergence_monitor(
                 if t_start < 0.0:
                     continue
 
-                # first index still inside window
                 j = np.searchsorted(times, t_start, side="left")
                 count = i - j + 1
 
@@ -658,7 +695,8 @@ def run_convergence_monitor(
 
             if not avg_vals:
                 print("No valid rolling 1-rev averages available yet.")
-                time.sleep(check_interval)
+                if sleep_or_stop():
+                    return False
                 continue
 
             avg_times = np.asarray(avg_times, dtype=float)
@@ -667,31 +705,9 @@ def run_convergence_monitor(
             latest_sim_time = float(avg_times[-1])
             current_avg_thrust = float(avg_vals[-1])
 
-            if os.path.exists(control_dict):
-                with open(control_dict, "r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        if line.strip().startswith("endTime"):
-                            try:
-                                end_time = float(line.split()[1].replace(";", ""))
-                                if latest_sim_time >= end_time - 1e-8:
-                                    print(
-                                        f"\n>>> Simulation reached endTime={end_time} "
-                                        f"without convergence <<<"
-                                    )
-                                    return False
-                            except:
-                                pass
-                            break
-
-            # ----------------------------
-            # Define last full-revolution window for y+ and residual reporting
-            # ----------------------------
             rev_window_start = latest_sim_time - rev_time
             rev_window_end = latest_sim_time
 
-            # ----------------------------
-            # Read y+ data over last full revolution
-            # ----------------------------
             avg_yplus = float("nan")
             max_yplus = float("nan")
             min_yplus = float("nan")
@@ -711,7 +727,6 @@ def run_convergence_monitor(
                 for line in yplus_lines:
                     parts = line.split()
 
-                    # Expected format: time patch min max average
                     if len(parts) >= 5 and parts[1] == "propellerTip":
                         try:
                             t = float(parts[0])
@@ -731,9 +746,6 @@ def run_convergence_monitor(
                     max_yplus = float(np.max(yplus_max_vals))
                     min_yplus = float(np.min(yplus_min_vals))
 
-            # ----------------------------
-            # Not enough rolling averages yet
-            # ----------------------------
             if len(avg_vals) < avg_history_count:
                 print(
                     f"Time: {latest_sim_time:.4f} | "
@@ -744,12 +756,10 @@ def run_convergence_monitor(
                     f"Max y+: {max_yplus:.2f} | "
                     f"Min y+: {min_yplus:.2f}"
                 )
-                time.sleep(check_interval)
+                if sleep_or_stop():
+                    return False
                 continue
 
-            # ----------------------------
-            # Convergence statistics on most recent rolling averages
-            # ----------------------------
             avg_thrust_history = avg_vals[-avg_history_count:]
             std_dev = float(np.std(avg_thrust_history))
             avg_val = float(np.mean(avg_thrust_history))
@@ -764,9 +774,6 @@ def run_convergence_monitor(
                 f"Min y+: {min_yplus:.2f}"
             )
 
-            # ----------------------------
-            # Stop logic
-            # ----------------------------
             if std_dev < tolerance and check_residuals(residuals_file, rev_time):
                 print(f"\n>>> SUFFICIENT CONVERGENCE REACHED AT {latest_sim_time}s <<<")
 
@@ -790,8 +797,8 @@ def run_convergence_monitor(
         except Exception as e:
             print(f"Error during monitoring: {e}")
 
-        time.sleep(check_interval)
-
+        if sleep_or_stop():
+            return False
 
 def get_latest_timestep(case_path):
     case_path = Path(case_path)
