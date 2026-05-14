@@ -7,6 +7,125 @@ from pathlib import Path
 import json
 from datetime import datetime
 
+from pathlib import Path
+import re
+
+
+from pathlib import Path
+import re
+
+
+def processor_deletion_is_safe(
+    PATH_TO_CONTROL_DICT_PARAMETERS,
+    SIMULATION_DIRECTORY,
+    TURBULENCE_MODEL: str,
+    RESUME: bool,
+) -> bool:
+
+    control_path = Path(PATH_TO_CONTROL_DICT_PARAMETERS)
+    sim_dir = Path(SIMULATION_DIRECTORY)
+
+    if not control_path.is_file() or not sim_dir.is_dir():
+        return False
+
+    text = control_path.read_text(errors="ignore")
+
+    match = re.search(r"^\s*purgeWrite\s+(\d+)\s*;", text, re.MULTILINE)
+    if not match:
+        return False
+
+    purge_write = int(match.group(1))
+
+    # Resume only needs ONE valid reconstructed timestep.
+    # Normal cleanup should validate all purgeWrite timesteps.
+    if RESUME:
+        required_number_of_times = 1
+    else:
+        required_number_of_times = max(purge_write, 1)
+
+    def is_time_folder(path: Path) -> bool:
+        if not path.is_dir() or path.name == "0":
+            return False
+
+        try:
+            float(path.name)
+            return True
+        except ValueError:
+            return False
+
+    time_folders = sorted(
+        [p for p in sim_dir.iterdir() if is_time_folder(p)],
+        key=lambda p: float(p.name),
+    )
+
+    if len(time_folders) < required_number_of_times:
+        return False
+
+    folders_to_check = time_folders[-required_number_of_times:]
+
+    # Solver-critical fields
+    base_required_files = [
+        "U",
+        "p",
+        "phi",
+        "Uf",
+        "nut",
+    ]
+
+    # For final cleanup validation (not resume),
+    # also verify postprocessing fields exist.
+    if not RESUME:
+        base_required_files += [
+            "Q",
+            "vorticity",
+        ]
+
+    TURBULENCE_MODEL = TURBULENCE_MODEL.strip()
+
+    if TURBULENCE_MODEL == "kEpsilon":
+        turbulence_required_files = ["k", "epsilon"]
+
+    elif TURBULENCE_MODEL == "kOmegaSST":
+        turbulence_required_files = ["k", "omega"]
+
+    else:
+        return False
+
+    required_files = base_required_files + turbulence_required_files
+
+    def file_is_healthy(file_path: Path) -> bool:
+
+        if not file_path.is_file():
+            return False
+
+        if file_path.stat().st_size == 0:
+            return False
+
+        content = file_path.read_text(errors="ignore")
+
+        # Basic OpenFOAM field structure checks
+        if "FoamFile" not in content:
+            return False
+
+        if "dimensions" not in content:
+            return False
+
+        if "internalField" not in content:
+            return False
+
+        if "boundaryField" not in content:
+            return False
+
+        return True
+
+    for folder in folders_to_check:
+
+        for filename in required_files:
+
+            if not file_is_healthy(folder / filename):
+                return False
+
+    return True
 
 def merge_postprocessing_dat_files(case_dir: Path, function_object_name: str) -> Path | None:
     """

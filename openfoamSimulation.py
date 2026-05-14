@@ -5,14 +5,14 @@ import threading
 from tools import run_convergence_monitor
 from tools import is_mesh_ok
 from tools import get_safe_timestep
-
+from tools import processor_deletion_is_safe
 
 status = False
 
 
 convergence_check_interval = 1
 
-def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE, NUMBER_OF_CORES, resume, MESH_ONLY, ALLOW_BAD_MESH, initialize_from_previous=False, previous_simulation_path=None):
+def openfoamSimulation(simulation_name, simulation_working_directory, convergence_tolerance, rpm_count, convergence_window_revolutions, MODE, TURBULENCE_MODEL, NUMBER_OF_CORES, resume, MESH_ONLY, ALLOW_BAD_MESH, initialize_from_previous=False, previous_simulation_path=None):
 
     # Docker client is setup here, interface volume mapping is defined, container is created:
 
@@ -171,16 +171,45 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
         print("Reconstructing safe timestep finished...")
 
-        print("Deleting processor folders...")
+        print("Checking if reconstruction was successfull...")
 
-        delete_processor_folders_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && rm -rf processor*'"
+        path_to_control_dict_parameter = Path(simulation_working_directory) / 'Parameters' / 'controlDict.cpp'
 
-        result = container.exec_run(delete_processor_folders_cmd, stream=True)
+        is_processor_deletion_safe = processor_deletion_is_safe(PATH_TO_CONTROL_DICT_PARAMETERS= path_to_control_dict_parameter, SIMULATION_DIRECTORY= simulation_working_directory, RESUME= True, TURBULENCE_MODEL= TURBULENCE_MODEL)
 
-        for _ in result.output:
-            pass
+        if is_processor_deletion_safe:
+            print("reconstruction looks healthy, continue to clean up...")
 
-        print("Deleted processor folder...")
+            print("Deleting processor folders...")
+
+            delete_processor_folders_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && rm -rf processor*'"
+
+            result = container.exec_run(delete_processor_folders_cmd, stream=True)
+
+            for _ in result.output:
+                pass
+
+            print("Deleted processor folder...")
+
+        else:
+            print( f"Reconstructed data in '{simulation_working_directory}' failed integrity checks. "
+                    "Resume operation aborted. Case marked as failed."
+                    )
+            
+            # Stop and Remove active simulation container
+
+            print(f"Stopping container '{container.name}'...")
+            container.stop()
+
+            print(f"Removing container '{container.name}'...")
+            container.remove()
+
+            
+            return False
+
+
+
+            
 
         decomposePar_resume_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && decomposePar > log_resume.decomposePar'"
 
@@ -261,7 +290,6 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
         else:
             print("NOTICE: Simulation finished normally (reached original endTime).")
 
-        status = True
 
 
         reconstructPar_cmd = "bash -c 'source /opt/openfoam13/etc/bashrc && reconstructPar > log.reconstructPar'"
@@ -293,16 +321,40 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
 
     print("FOAM File created...")
 
-    delete_processor_folders_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && rm -rf processor*'"
+    path_to_control_dict_parameter = Path(simulation_working_directory) / 'Parameters' / 'controlDict.cpp'
 
-    result = container.exec_run(delete_processor_folders_cmd, stream=True)
+    is_processor_deletion_safe = processor_deletion_is_safe(PATH_TO_CONTROL_DICT_PARAMETERS= path_to_control_dict_parameter, SIMULATION_DIRECTORY= simulation_working_directory, RESUME= False, TURBULENCE_MODEL= TURBULENCE_MODEL)
 
-    for _ in result.output:
-        pass
+    if is_processor_deletion_safe:
+        print("reconstruction looks healthy, continue to clean up...")
 
-    print("Deleted processor folder...")
+        print("Deleting processor folders...")
 
-    print("Cleanup complete. System ready for the next simulation.")
+        delete_processor_folders_cmd = f"bash -c 'source /opt/openfoam13/etc/bashrc && rm -rf processor*'"
+
+        result = container.exec_run(delete_processor_folders_cmd, stream=True)
+
+        for _ in result.output:
+            pass
+
+        print("Deleted processor folder...")
+
+        print("Cleanup complete. System ready for the next simulation.")
+        
+
+
+
+    else:
+        print( f"Reconstructed data in '{simulation_working_directory}' failed integrity checks. "
+                "Processor source files were preserved for safety and manual inspection.")
+
+       
+
+    status = True
+
+
+
+
 
         
 
@@ -314,7 +366,6 @@ def openfoamSimulation(simulation_name, simulation_working_directory, convergenc
     print(f"Removing container '{container.name}'...")
     container.remove()
 
-    print("Deleting processor folders...")
 
     
     print(f"openFoamSimulation returns status: {status}")
