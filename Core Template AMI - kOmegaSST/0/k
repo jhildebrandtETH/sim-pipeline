@@ -44,8 +44,8 @@ boundaryField
 
     propellerTip
     {
-        type            fixedValue;
-        value           uniform 1e-10;
+        type            kqRWallFunction;
+        value           uniform 1e-6;
     }
 
     innerCylinder

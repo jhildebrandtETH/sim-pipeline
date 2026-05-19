@@ -39,7 +39,7 @@ boundaryField
     }
     propellerTip
     {
-        type            calculated;
+        type            nutkWallFunction;
         value           uniform 0;
     }
     nonCouple1

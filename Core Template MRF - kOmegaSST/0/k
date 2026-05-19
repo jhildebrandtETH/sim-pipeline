@@ -40,7 +40,7 @@ boundaryField
     }
     propellerTip
     { 
-        type            fixedValue;
+        type            kqRWallFunction;
         value           uniform 1e-6;
     }
     nonCouple1

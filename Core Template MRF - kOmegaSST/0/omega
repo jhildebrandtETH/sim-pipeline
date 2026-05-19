@@ -41,8 +41,8 @@ boundaryField
     }
     propellerTip
     {
-        type            fixedValue;
-        value           uniform 2000;
+        type            omegaWallFunction;
+        value           uniform 1;
     }
     nonCouple1
     {
