@@ -18,7 +18,7 @@ startFrom       $startFrom;
 
 stopAt          endTime;
 
-endTime         0.2;
+endTime         $endTime;
 
 deltaT          $deltaT;
 

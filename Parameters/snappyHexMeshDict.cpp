@@ -1,6 +1,6 @@
 castellatedMesh true;
 snap true;
-addLayers false;
+addLayers true;
 
 maxLocalCells 100000;
 maxGlobalCells 2000000;
@@ -9,13 +9,13 @@ maxLoadUnbalance 0.10;
 nCellsBetweenLevels 2;
 
 innerCylinderSurfaceRefinementLevel (3 3);
-propellerTipSurfaceRefinementLevel (6 6);
+propellerTipSurfaceRefinementLevel (4 4); //(5 5)
 
 outerCylinderRefinementRegionLevel ((1E15 2));
 innerCylinderRefinementRegionMode distance;
-innerCylinderRefinementRegionLevel ((0.02 3));
+innerCylinderRefinementRegionLevel ((0.005 3) (0.030 2));
 propellerTipRefinementRegionMode distance;
-propellerTipRefinementRegionLevel ((0.002 5) (0.01 4) (0.03 3));
+propellerTipRefinementRegionLevel ((0.002 4) (0.01 4) (0.03 3)); //((0.002 5) (0.01 4) (0.03 3))
 
 nSmoothPatch 3;
 tolerance 1.0;
@@ -28,10 +28,10 @@ multiRegionFeatureSnap true;
 
 
 relativeSizes false;
-propellerTipSurfaceLayers 5;
-expansionRatio 1.15;
-firstLayerThickness 0.00006;
-minThickness 0.000006;
+propellerTipSurfaceLayers 1;
+expansionRatio 1.0;
+firstLayerThickness 0.000857;
+minThickness 0.0001;
 nGrow 0;
 featureAngle 180;
 addLayersnRelaxIter 5;

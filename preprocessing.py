@@ -106,10 +106,11 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
     update_parameter(decomposeParDict_parameters_file_path, 'numberOfSubdomains', CORES_TO_USE)
 
 
-    # Activate prismLayers for kOmegaSST turbulence model
+    # prismLayer config for both turbulence models
 
     snappyHexMeshDict_parameters_file_path = os.path.join(TARGET_DIRECTORY, 'Parameters', 'snappyHexMeshDict.cpp')
 
+    """
     if TURBULENCE_MODEL == "kOmegaSST":
 
         update_parameter(snappyHexMeshDict_parameters_file_path, 'addLayers', "true")
@@ -120,8 +121,12 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
         update_parameter(snappyHexMeshDict_parameters_file_path, 'expansionRatio', "1.15")
 
     else:
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'addLayers', "false")
+        update_parameter(snappyHexMeshDict_parameters_file_path, 'addLayers', "true")
         update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipSurfaceRefinementLevel', "(5 5)")
+        update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipSurfaceLayers', "1")
+        #update_parameter(snappyHexMeshDict_parameters_file_path, 'firstLayerThickness', "0.00006")
+    """
+
 
 
 

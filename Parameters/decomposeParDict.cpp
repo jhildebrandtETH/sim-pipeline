@@ -1,2 +1,2 @@
-numberOfSubdomains 24; 
+numberOfSubdomains 144;
 method scotch;

@@ -19,6 +19,7 @@ Automated pipeline for generating meshes and running OpenFOAM simulations of UAV
 ## Requirements
 
 - Docker Engine **running**
+  - Docker image: microfluidica/openfoam:13
 - Conda environment:
 
 ```bash
