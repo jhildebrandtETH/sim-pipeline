@@ -23,19 +23,19 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
                         pass
 
             if not time_dirs:
-                return None
+                return None, None
 
             return max(time_dirs, key=lambda x: x[0])[1]
 
         latest_time_dir = get_latest_time_dir(case_path)
 
         if latest_time_dir is None:
-            return None
+            return None, None
 
         yplus_file = latest_time_dir / "yPlus"
 
         if not yplus_file.exists():
-            return None
+            return None, None
 
         text = yplus_file.read_text(encoding="utf-8", errors="ignore")
 
@@ -43,7 +43,7 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         patch_match = re.search(patch_pattern, text, re.DOTALL)
 
         if not patch_match:
-            return None
+            return None, None
 
         patch_block = patch_match.group(1)
 
@@ -51,7 +51,7 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         list_match = re.search(list_pattern, patch_block, re.DOTALL)
 
         if not list_match:
-            return None
+            return None, None
 
         values_block = list_match.group(2)
 
@@ -67,43 +67,83 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         )
 
         if len(yplus_values) == 0:
-            return None
-
-        counts = [
-            np.sum(yplus_values < 5),
-            np.sum((yplus_values >= 5) & (yplus_values <= 30)),
-            np.sum(yplus_values > 30),
-        ]
+            return None, None
 
         total = len(yplus_values)
-        percentages = [100.0 * c / total for c in counts]
 
-        labels = ["y+ < 5", "5 ≤ y+ ≤ 30", "y+ > 30"]
+        # Compact wall-function quality classes
+        class_counts = [
+            int(np.sum(yplus_values < 5)),
+            int(np.sum((yplus_values >= 5) & (yplus_values <= 30))),
+            int(np.sum(yplus_values > 30)),
+        ]
+        class_percentages = [100.0 * c / total for c in class_counts]
+        class_labels = ["y+ < 5", "5 ≤ y+ ≤ 30", "y+ > 30"]
+
+        # Finer block diagram to make the high-y+ region visible
+        block_bins = [0.0, 5.0, 30.0, 50.0, 100.0, 200.0, np.inf]
+        block_labels = ["<5", "5-30", "30-50", "50-100", "100-200", ">200"]
+        block_counts = []
+
+        for lower, upper in zip(block_bins[:-1], block_bins[1:]):
+            if np.isinf(upper):
+                count = np.sum(yplus_values >= lower)
+            elif lower == 0.0:
+                count = np.sum(yplus_values < upper)
+            else:
+                count = np.sum((yplus_values >= lower) & (yplus_values < upper))
+            block_counts.append(int(count))
+
+        block_percentages = [100.0 * c / total for c in block_counts]
+
+        yplus_stats = {
+            "patch_name": patch_name,
+            "time_dir": latest_time_dir.name,
+            "n_faces": int(total),
+            "average_yplus": float(np.mean(yplus_values)),
+            "min_yplus": float(np.min(yplus_values)),
+            "max_yplus": float(np.max(yplus_values)),
+            "median_yplus": float(np.median(yplus_values)),
+            "share_yplus_lt_5_percent": class_percentages[0],
+            "share_yplus_5_to_30_percent": class_percentages[1],
+            "share_yplus_gt_30_percent": class_percentages[2],
+        }
 
         yplus_plot = report_dir / "yplus_distribution.png"
 
-        plt.figure(figsize=(5.0, 3.4))
-        bars = plt.bar(labels, percentages)
+        plt.figure(figsize=(7.2, 4.0))
+        bars = plt.bar(block_labels, block_percentages)
 
         plt.ylabel("Surface face share [%]")
-        plt.title(f"y+ Distribution: {patch_name}")
+        plt.xlabel("y+ interval")
+        plt.title(
+            f"y+ Block Distribution: {patch_name} "
+            f"(avg. y+ = {yplus_stats['average_yplus']:.1f})"
+        )
         plt.grid(axis="y")
 
-        for bar, percentage in zip(bars, percentages):
+        for bar, percentage, count in zip(bars, block_percentages, block_counts):
             plt.text(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height(),
-                f"{percentage:.1f}%",
+                f"{percentage:.1f}%\n({count})",
                 ha="center",
                 va="bottom",
-                fontsize=9,
+                fontsize=8,
             )
 
-        plt.tight_layout()
+        note = (
+            f"Classes: <5 = {class_percentages[0]:.1f}%, "
+            f"5-30 = {class_percentages[1]:.1f}%, "
+            f">30 = {class_percentages[2]:.1f}%"
+        )
+        plt.figtext(0.5, 0.01, note, ha="center", fontsize=9)
+
+        plt.tight_layout(rect=(0, 0.06, 1, 1))
         plt.savefig(yplus_plot, dpi=200)
         plt.close()
 
-        return yplus_plot
+        return yplus_plot, yplus_stats
 
     def read_mesh_element_types(case_path):
         log_checkmesh = case_path / "log.checkMesh"
@@ -403,9 +443,12 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
     mesh_element_types = read_mesh_element_types(case_path)
     mesh_element_plot = create_mesh_element_plot(mesh_element_types, report_dir)
 
-    yplus_plot = create_yplus_distribution_plot(case_path, report_dir, patch_name="propellerTip",)
+    yplus_plot, yplus_stats = create_yplus_distribution_plot(
+        case_path,
+        report_dir,
+        patch_name="propellerTip",
+    )
 
-    
 
     if output_pdf is None:
         output_pdf = report_dir / "simulation_report.pdf"
@@ -599,12 +642,33 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         c.setFont("Helvetica-Bold", 16)
         c.drawString(50, h - 50, "Wall Treatment Evaluation")
 
+        if yplus_stats is not None:
+            c.setFont("Helvetica", 11)
+            c.drawString(
+                50,
+                h - 80,
+                f"Patch: {yplus_stats['patch_name']} | Time: {yplus_stats['time_dir']} | Faces: {yplus_stats['n_faces']}",
+            )
+            c.drawString(
+                50,
+                h - 100,
+                f"Average y+: {yplus_stats['average_yplus']:.2f} | Median y+: {yplus_stats['median_yplus']:.2f} "
+                f"| Min/Max y+: {yplus_stats['min_yplus']:.2f} / {yplus_stats['max_yplus']:.2f}",
+            )
+            c.drawString(
+                50,
+                h - 120,
+                f"Surface share: y+ < 5: {yplus_stats['share_yplus_lt_5_percent']:.1f}% | "
+                f"5 <= y+ <= 30: {yplus_stats['share_yplus_5_to_30_percent']:.1f}% | "
+                f"y+ > 30: {yplus_stats['share_yplus_gt_30_percent']:.1f}%",
+            )
+
         c.drawImage(
             str(yplus_plot),
-            80,
-            h - 360,
-            width=430,
-            height=260,
+            50,
+            h - 500,
+            width=500,
+            height=330,
             preserveAspectRatio=True,
             mask="auto",
         )
@@ -623,6 +687,10 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         "mesh_info": mesh_info,
         "mesh_element_types": mesh_element_types,
         "yplus_plot_path": str(yplus_plot) if yplus_plot is not None else None,
+        "yplus_stats": yplus_stats,
+        "average_yplus": (
+            yplus_stats["average_yplus"] if yplus_stats is not None else None
+        ),
         "mesh_element_plot_path": str(mesh_element_plot) if mesh_element_plot is not None else None,
         "last_one_rev_avg_thrust_N": thrust_avg,
         "execution_time_s": exec_time,

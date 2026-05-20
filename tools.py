@@ -7,12 +7,89 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-from pathlib import Path
-import re
+def get_y_domain_height(blockmeshdict_path):
+
+    text = Path(blockmeshdict_path).read_text(errors="ignore")
+
+    # Extract vertices block
+    vertices_match = re.search(
+        r"vertices\s*\((.*?)\);",
+        text,
+        re.DOTALL
+    )
+
+    if not vertices_match:
+        raise ValueError("No vertices block found.")
+
+    vertices_text = vertices_match.group(1)
+
+    # Extract all y coordinates
+    y_values = []
+
+    for match in re.finditer(
+        r"\(\s*[-+eE0-9\.]+\s+([-+eE0-9\.]+)\s+[-+eE0-9\.]+\s*\)",
+        vertices_text
+    ):
+        y_values.append(float(match.group(1)))
+
+    if not y_values:
+        raise ValueError("No y values found.")
+
+    return max(y_values) - min(y_values)
 
 
-from pathlib import Path
-import re
+def read_openfoam_scalar(file_path, variable_name):
+    """
+    Reads a scalar OpenFOAM dictionary entry and returns it as float.
+
+    Example supported lines:
+        rhoInf         1.225;
+        nu             1.5e-05;
+        endTime        0.2;
+
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to OpenFOAM dictionary file.
+
+    variable_name : str
+        Variable to search for.
+
+    Returns
+    -------
+    float
+
+    Raises
+    ------
+    FileNotFoundError
+    ValueError
+    """
+
+    file_path = Path(file_path)
+
+    if not file_path.is_file():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    text = file_path.read_text(errors="ignore")
+
+    pattern = rf"^\s*{re.escape(variable_name)}\s+([^\s;]+)\s*;"
+
+    match = re.search(pattern, text, re.MULTILINE)
+
+    if not match:
+        raise ValueError(
+            f"Variable '{variable_name}' not found in {file_path}"
+        )
+
+    value_string = match.group(1)
+
+    try:
+        return float(value_string)
+
+    except ValueError:
+        raise ValueError(
+            f"Variable '{variable_name}' is not numeric: {value_string}"
+        )
 
 def safe_exec(container, cmd, description="command", print_output=False):
     try:

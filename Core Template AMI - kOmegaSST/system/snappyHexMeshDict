@@ -194,8 +194,8 @@ castellatedMeshControls
         //}
         propellerTip
         {
-            mode $propellerTipRefinementRegionMode;
-            levels $propellerTipRefinementRegionLevel;
+            mode distance;
+            levels ((0.01 $propellerTipRegionLevel) (0.03 3));;
         }
     }
     

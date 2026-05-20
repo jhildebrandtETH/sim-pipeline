@@ -2,10 +2,13 @@
 
 import shutil
 import os
+import re
 import math
 from pathlib import Path
 from tools import get_latest_timestep
 from tools import update_parameter
+from tools import read_openfoam_scalar
+from tools import get_y_domain_height
 
 
 interpolation_points = 100
@@ -106,29 +109,67 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
     update_parameter(decomposeParDict_parameters_file_path, 'numberOfSubdomains', CORES_TO_USE)
 
 
-    # prismLayer config for both turbulence models
+
+    
+   # Autonomous y+ targeting
+
+
+    #applying boudary layer theory (prantl & schlichting)
+
+    rho_file_path = Path(TARGET_DIRECTORY) / 'system' / 'forces'
+    nu_file_path = Path(TARGET_DIRECTORY) / 'constant' / 'transportProperties'
+    block_mesh_dict_path = Path(TARGET_DIRECTORY) / 'system' / 'blockMeshDict'
+    block_mesh_parameters_path = Path(TARGET_DIRECTORY) / 'Parameters' / 'blockMeshDict.cpp'
+
+
+    inner_reference_radius = 0.015
+    reference_chord_length = 0.016
+    y_plus_target = 30
+
+    U_rel = inner_reference_radius * omega
+    rho = read_openfoam_scalar(rho_file_path, 'rhoInf')
+    nu = read_openfoam_scalar(nu_file_path, 'nu')
+    Re = (U_rel*reference_chord_length)/(nu)
+    C_f = 0.0592*math.pow(Re,(-1/5)) # Prantl-Schlichting equation
+    tau_w = 0.5*rho*(U_rel**2)*C_f
+    u_tau = math.sqrt((tau_w)/(rho))
+
+    h = (y_plus_target * nu)/(u_tau)#y+ definition
+
+
+    L_y = get_y_domain_height(block_mesh_dict_path)
+    
+    text = block_mesh_parameters_path.read_text(errors="ignore")
+    match = re.search(
+    r"blocks_resolution\s*\(\s*(\d+)\s+(\d+)\s+(\d+)\s*\)\s*;",
+    text
+    )
+
+    N_y = int(match.group(2))
+    
+    delta_y_0 = (L_y)/(N_y)
+
+    n = math.log((delta_y_0)/(h), 2)
+    n_floor = math.floor(n)
+    print(f"Autonomous y+ targeting: First layer thickness determined to: {h}m")
+    print(f"Autonomous y+ targeting: Refinement levels determined to: {n} -> {n_floor}")
+
+    first_layer_thickness = h
+    first_layer_thickness_string = f'{first_layer_thickness}'
+
+    propeller_region_refinement_level = n_floor
+    propeller_region_refinement_level_string = f'{propeller_region_refinement_level}'
+
+    propeller_surface_refinement_level = n_floor
+    propeller_surface_refinement_level_string = f'({propeller_surface_refinement_level} {propeller_surface_refinement_level})'
 
     snappyHexMeshDict_parameters_file_path = os.path.join(TARGET_DIRECTORY, 'Parameters', 'snappyHexMeshDict.cpp')
 
-    """
-    if TURBULENCE_MODEL == "kOmegaSST":
-
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'addLayers', "true")
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipSurfaceLayers', "5")
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipSurfaceRefinementLevel', "(7 7)")
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'firstLayerThickness', "0.00006")
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'minThickness', "0.000006")
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'expansionRatio', "1.15")
-
-    else:
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'addLayers', "true")
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipSurfaceRefinementLevel', "(5 5)")
-        update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipSurfaceLayers', "1")
-        #update_parameter(snappyHexMeshDict_parameters_file_path, 'firstLayerThickness', "0.00006")
-    """
-
-
-
+    update_parameter(snappyHexMeshDict_parameters_file_path, 'firstLayerThickness', first_layer_thickness_string)
+    update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipRegionLevel', propeller_region_refinement_level_string)
+    update_parameter(snappyHexMeshDict_parameters_file_path, 'propellerTipSurfaceRefinementLevel', propeller_surface_refinement_level_string)
+    
+    
 
 
 
