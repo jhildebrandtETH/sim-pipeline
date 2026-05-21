@@ -130,7 +130,7 @@ def preprocessing(STL_PATH, RPM_COUNT, MAIN_DIRECTORY, TARGET_DIRECTORY, CORES_T
     rho = read_openfoam_scalar(rho_file_path, 'rhoInf')
     nu = read_openfoam_scalar(nu_file_path, 'nu')
     Re = (U_rel*reference_chord_length)/(nu)
-    C_f = 0.0592*math.pow(Re,(-1/5)) # Prantl-Schlichting equation
+    C_f = 0.074*math.pow(Re,(-1/5)) # Prantl-Schlichting equation
     tau_w = 0.5*rho*(U_rel**2)*C_f
     u_tau = math.sqrt((tau_w)/(rho))
 
