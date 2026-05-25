@@ -299,27 +299,107 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
             return f"{m} min {s} s"
         return f"{s} s"
 
-    def create_force_plots(times, thrusts, report_dir, rev_time):
+    def evaluate_thrust_convergence(times, thrusts, rev_time, threshold=1e-3):
+        latest_time = float(times[-1])
+        last_rev_start = latest_time - rev_time
+        idx_start = np.searchsorted(times, last_rev_start, side="left")
+
+        window_times = times[idx_start:]
+        window_thrusts = thrusts[idx_start:]
+
+        if len(window_thrusts) == 0:
+            return {
+                "passed": False,
+                "reason": "No thrust samples found in final revolution window.",
+                "window_start_s": last_rev_start,
+                "window_end_s": latest_time,
+                "mean_N": None,
+                "std_N": None,
+                "relative_std": None,
+                "threshold": threshold,
+                "n_samples": 0,
+            }
+
+        mean_thrust = float(np.mean(window_thrusts))
+        std_thrust = float(np.std(window_thrusts, ddof=0))
+        relative_std = std_thrust / max(abs(mean_thrust), 1e-12)
+
+        return {
+            "passed": bool(relative_std < threshold),
+            "reason": None,
+            "window_start_s": float(window_times[0]),
+            "window_end_s": latest_time,
+            "mean_N": mean_thrust,
+            "std_N": std_thrust,
+            "relative_std": float(relative_std),
+            "threshold": float(threshold),
+            "n_samples": int(len(window_thrusts)),
+        }
+
+    def compute_thrust_stability_history(times, thrusts, rev_time):
+        """
+        Computes the relative thrust fluctuation over a sliding one-revolution window.
+
+        metric(t) = std(F_window) / |mean(F_window)|
+
+        The value at time t uses all force samples within [t - T_rev, t].
+        """
+        metric = np.full(len(times), np.nan, dtype=float)
+        window_mean = np.full(len(times), np.nan, dtype=float)
+        window_std = np.full(len(times), np.nan, dtype=float)
+        sample_count = np.zeros(len(times), dtype=int)
+
+        for i, time_value in enumerate(times):
+            window_start = time_value - rev_time
+
+            if window_start < times[0]:
+                continue
+
+            j = np.searchsorted(times, window_start, side="left")
+            window_values = thrusts[j : i + 1]
+
+            if len(window_values) < 2:
+                continue
+
+            mean_value = float(np.mean(window_values))
+            std_value = float(np.std(window_values, ddof=0))
+
+            window_mean[i] = mean_value
+            window_std[i] = std_value
+            metric[i] = std_value / max(abs(mean_value), 1e-12)
+            sample_count[i] = int(len(window_values))
+
+        return {
+            "time": times,
+            "relative_std": metric,
+            "mean_N": window_mean,
+            "std_N": window_std,
+            "sample_count": sample_count,
+        }
+
+    def create_force_plots(times, thrusts, report_dir, rev_time, thrust_convergence):
         force_plot = report_dir / "force_plot.png"
         conv_plot = report_dir / "force_convergence.png"
 
         latest_time = float(times[-1])
         last_rev_start = latest_time - rev_time
 
-        # Ignore extreme startup spikes only for y-axis scaling
+        # -----------------------------
+        # Force history plot
+        # -----------------------------
+        # The raw force plot is kept as a general overview. Extreme initialization
+        # spikes are excluded only from the axis scaling, not from the data itself.
         plot_mask = times > 0.001
         plot_thrusts = thrusts[plot_mask]
 
         if len(plot_thrusts) > 0:
             y_min = np.percentile(plot_thrusts, 1)
             y_max = np.percentile(plot_thrusts, 99)
-            y_margin = 0.15 * (y_max - y_min)
+            y_margin = 0.15 * max(y_max - y_min, 1e-12)
         else:
-            y_min, y_max, y_margin = np.min(thrusts), np.max(thrusts), 1.0
+            y_min, y_max = np.min(thrusts), np.max(thrusts)
+            y_margin = 0.15 * max(y_max - y_min, 1e-12)
 
-        # -----------------------------
-        # Force plot
-        # -----------------------------
         plt.figure(figsize=(12, 5))
         plt.plot(times, thrusts, label="Pressure force Fy")
 
@@ -327,11 +407,10 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
             last_rev_start,
             latest_time,
             alpha=0.2,
-            label="last revolution window",
+            label="final revolution window",
         )
 
         plt.ylim(y_min - y_margin, y_max + y_margin)
-
         plt.xlabel("Time [s]")
         plt.ylabel("Force Fy [N]")
         plt.title("Pressure Force Fy")
@@ -342,68 +421,74 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         plt.close()
 
         # -----------------------------
-        # Force convergence metric
+        # Thrust stability metric plot
         # -----------------------------
-        window = 200
-        eps_rel = 1e-3
-        metric = np.full(len(thrusts), np.nan)
+        # This plot directly visualizes the implemented convergence criterion:
+        # std(F) / |mean(F)| evaluated over a sliding one-revolution window.
+        threshold = thrust_convergence["threshold"]
+        status = "PASSED" if thrust_convergence["passed"] else "FAILED"
+        final_relative_std = thrust_convergence["relative_std"]
 
-        for i in range(window - 1, len(thrusts)):
-            w = thrusts[i - window + 1 : i + 1]
-            metric[i] = (np.max(w) - np.min(w)) / max(abs(np.mean(w)), 1e-12)
-
-        good = metric < eps_rel
-        good[np.isnan(metric)] = False
-
-        first_conv = None
-
-        if np.any(good):
-            suffix_all_good = np.flip(
-                np.cumprod(np.flip(good.astype(int))).astype(bool)
-            )
-            idx = np.where(suffix_all_good)[0]
-
-            if len(idx) > 0:
-                first_conv = int(idx[0])
+        stability_history = compute_thrust_stability_history(times, thrusts, rev_time)
+        metric_time = stability_history["time"]
+        metric = stability_history["relative_std"]
+        valid = np.isfinite(metric) & (metric > 0.0)
 
         plt.figure(figsize=(12, 5))
-        plt.plot(times, metric, label="(max - min) / mean")
+
+        if np.any(valid):
+            plt.plot(
+                metric_time[valid],
+                metric[valid],
+                label=r"sliding 1-rev $\sigma_F / |\overline{F}|$",
+            )
+
+        plt.axhline(
+            threshold,
+            linestyle="--",
+            label=f"criterion = {threshold:g}",
+        )
 
         plt.axvspan(
             last_rev_start,
             latest_time,
             alpha=0.2,
-            label="last revolution window",
+            label="final evaluation window",
         )
 
-        plt.axhline(eps_rel, linestyle="--", label=f"threshold = {eps_rel:g}")
-
-        if first_conv is not None:
-            plt.axvline(
-                times[first_conv],
-                linestyle="--",
-                label=f"convergence start: {times[first_conv]:.4f} s",
+        if final_relative_std is not None:
+            text = (
+                f"Final 1-rev result: {final_relative_std:.3e} → {status}\n"
+                f"Criterion: relative thrust fluctuation < {threshold:g}"
             )
+        else:
+            text = f"Final 1-rev result could not be evaluated → {status}"
+
+        plt.text(
+            0.02,
+            0.95,
+            text,
+            transform=plt.gca().transAxes,
+            ha="left",
+            va="top",
+            bbox=dict(facecolor="white", edgecolor="black", alpha=0.85),
+        )
 
         plt.yscale("log")
         plt.xlabel("Time [s]")
-        plt.ylabel("Convergence metric")
-        plt.title("Force Convergence Criterion")
+        plt.ylabel(r"Relative thrust fluctuation $\sigma_F / |\overline{F}|$")
+        plt.title("Thrust Stability Criterion over Sliding One-Revolution Window")
         plt.grid(True, which="both")
         plt.legend()
         plt.tight_layout()
         plt.savefig(conv_plot, dpi=200)
         plt.close()
 
-        return force_plot, conv_plot, first_conv
+        return force_plot, conv_plot, stability_history
 
-    def create_residual_plot(residual_file, report_dir, rev_time, latest_time):
-        residual_plot = report_dir / "residuals.png"
-
+    def read_residual_dataframe(residual_file):
         if not residual_file.exists():
             return None
-
-        last_rev_start = latest_time - rev_time
 
         with open(residual_file, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
@@ -424,6 +509,80 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         if "Time" not in df.columns:
             return None
 
+        df = df.apply(pd.to_numeric, errors="coerce")
+        df = df.dropna(subset=["Time"])
+        df = df.sort_values("Time")
+
+        return df
+
+    def evaluate_residual_slopes(df, rev_time, latest_time):
+        if df is None or len(df) == 0:
+            return None
+
+        last_rev_start = latest_time - rev_time
+        window = df[(df["Time"] >= last_rev_start) & (df["Time"] <= latest_time)].copy()
+
+        if len(window) < 2:
+            return {
+                "window_start_s": last_rev_start,
+                "window_end_s": latest_time,
+                "n_samples": int(len(window)),
+                "slopes_per_rev": {},
+                "end_residuals": {},
+                "mean_residuals": {},
+                "reason": "Not enough residual samples in final revolution window.",
+            }
+
+        # Independent variable in revolutions relative to the start of the final window.
+        x_rev = (window["Time"].to_numpy(dtype=float) - last_rev_start) / rev_time
+
+        slopes_per_rev = {}
+        end_residuals = {}
+        mean_residuals = {}
+
+        for col in window.columns:
+            if col == "Time":
+                continue
+
+            values = window[col].to_numpy(dtype=float)
+            valid = np.isfinite(values) & (values > 0.0) & np.isfinite(x_rev)
+
+            if np.count_nonzero(valid) < 2:
+                slopes_per_rev[col] = None
+                end_residuals[col] = None
+                mean_residuals[col] = None
+                continue
+
+            y_log = np.log10(values[valid])
+            x_valid = x_rev[valid]
+
+            # Slope of log10(residual) per propeller revolution.
+            slope, _intercept = np.polyfit(x_valid, y_log, 1)
+
+            slopes_per_rev[col] = float(slope)
+            end_residuals[col] = float(values[valid][-1])
+            mean_residuals[col] = float(np.mean(values[valid]))
+
+        return {
+            "window_start_s": float(window["Time"].iloc[0]),
+            "window_end_s": float(window["Time"].iloc[-1]),
+            "n_samples": int(len(window)),
+            "slopes_per_rev": slopes_per_rev,
+            "end_residuals": end_residuals,
+            "mean_residuals": mean_residuals,
+            "reason": None,
+        }
+
+    def create_residual_plots(residual_file, report_dir, rev_time, latest_time):
+        residual_plot = report_dir / "residuals.png"
+
+        df = read_residual_dataframe(residual_file)
+
+        if df is None:
+            return None, None
+
+        last_rev_start = latest_time - rev_time
+
         plt.figure(figsize=(12, 5))
 
         for col in df.columns:
@@ -434,7 +593,7 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
             last_rev_start,
             latest_time,
             alpha=0.2,
-            label="last revolution window",
+            label="final revolution window",
         )
 
         plt.yscale("log")
@@ -447,7 +606,9 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         plt.savefig(residual_plot, dpi=200)
         plt.close()
 
-        return residual_plot
+        residual_slope_info = evaluate_residual_slopes(df, rev_time, latest_time)
+
+        return residual_plot, residual_slope_info
 
     case_path = Path(case_path)
     report_dir = case_path / "report"
@@ -505,8 +666,13 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
     if latest_time < rev_time:
         raise ValueError("Simulation shorter than one revolution.")
 
-    idx_start = np.searchsorted(times, latest_time - rev_time, side="left")
-    thrust_avg = float(np.mean(thrusts[idx_start:]))
+    thrust_convergence = evaluate_thrust_convergence(
+        times,
+        thrusts,
+        rev_time,
+        threshold=1e-3,
+    )
+    thrust_avg = thrust_convergence["mean_N"]
 
     exec_time = None
     clock_time = None
@@ -528,15 +694,15 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         else "Not found"
     )
 
-    force_plot, conv_plot, first_conv_idx = create_force_plots(
-        times, thrusts, report_dir, rev_time
+    force_plot, conv_plot, thrust_stability_history = create_force_plots(
+        times, thrusts, report_dir, rev_time, thrust_convergence
     )
 
-    residual_plot = create_residual_plot(
-    residual_file,
-    report_dir,
-    rev_time,
-    latest_time,
+    residual_plot, residual_slope_info = create_residual_plots(
+        residual_file,
+        report_dir,
+        rev_time,
+        latest_time,
     )
     c = canvas.Canvas(str(output_pdf), pagesize=A4)
     w, h = A4
@@ -632,14 +798,21 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
     c.setFont("Helvetica-Bold", 14)
     c.drawString(50, y, f"Last 1-rev averaged thrust: {thrust_avg:.6f} N")
 
-    if first_conv_idx is not None:
-        y -= 24
-        c.setFont("Helvetica", 11)
-        c.drawString(
-            50,
-            y,
-            f"Force convergence start: {times[first_conv_idx]:.6f} s",
-        )
+    y -= 24
+    c.setFont("Helvetica", 11)
+    c.drawString(50, y, f"Last 1-rev thrust std.: {thrust_convergence['std_N']:.6e} N")
+
+    y -= 22
+    c.drawString(50, y, f"Relative thrust std.: {thrust_convergence['relative_std']:.6e}")
+
+    y -= 22
+    status_text = "PASSED" if thrust_convergence["passed"] else "FAILED"
+    c.drawString(
+        50,
+        y,
+        f"Thrust stability criterion: {status_text} "
+        f"(threshold = {thrust_convergence['threshold']:.1e})",
+    )
 
     c.showPage()
 
@@ -654,6 +827,40 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         c.setFont("Helvetica-Bold", 16)
         c.drawString(50, h - 50, "Residual Evaluation")
         c.drawImage(str(residual_plot), 40, 350, width=510, height=260)
+
+        if residual_slope_info is not None:
+            c.setFont("Helvetica-Bold", 12)
+            c.drawString(50, 315, "Residual slopes over final revolution")
+            c.setFont("Helvetica", 9)
+            c.drawString(50, 298, "Slope definition: linear fit of log10(residual) over the final revolution, reported per revolution.")
+
+            y_table = 278
+            c.setFont("Helvetica-Bold", 8)
+            c.drawString(50, y_table, "Field")
+            c.drawString(160, y_table, "Slope / rev")
+            c.drawString(260, y_table, "Final residual")
+            c.drawString(370, y_table, "Mean residual")
+
+            y_table -= 14
+            c.setFont("Helvetica", 8)
+
+            slope_items = list(residual_slope_info.get("slopes_per_rev", {}).items())
+            for field, slope in slope_items[:10]:
+                end_value = residual_slope_info.get("end_residuals", {}).get(field)
+                mean_value = residual_slope_info.get("mean_residuals", {}).get(field)
+
+                slope_text = "n/a" if slope is None else f"{slope:.3e}"
+                end_text = "n/a" if end_value is None else f"{end_value:.3e}"
+                mean_text = "n/a" if mean_value is None else f"{mean_value:.3e}"
+
+                c.drawString(50, y_table, str(field)[:18])
+                c.drawString(160, y_table, slope_text)
+                c.drawString(260, y_table, end_text)
+                c.drawString(370, y_table, mean_text)
+                y_table -= 12
+
+                if y_table < 40:
+                    break
 
     if yplus_plot is not None:
         c.showPage()
@@ -711,15 +918,21 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
         ),
         "mesh_element_plot_path": str(mesh_element_plot) if mesh_element_plot is not None else None,
         "last_one_rev_avg_thrust_N": thrust_avg,
+        "last_one_rev_thrust_std_N": thrust_convergence["std_N"],
+        "last_one_rev_relative_thrust_std": thrust_convergence["relative_std"],
+        "thrust_convergence_threshold": thrust_convergence["threshold"],
+        "thrust_convergence_passed": thrust_convergence["passed"],
+        "thrust_convergence_window_start_s": thrust_convergence["window_start_s"],
+        "thrust_convergence_window_end_s": thrust_convergence["window_end_s"],
+        "thrust_convergence_n_samples": thrust_convergence["n_samples"],
         "execution_time_s": exec_time,
         "clock_time_s": clock_time,
-        "force_convergence_start_s": (
-            float(times[first_conv_idx]) if first_conv_idx is not None else None
-        ),
         "pdf_path": str(output_pdf),
         "force_plot_path": str(force_plot),
         "force_convergence_plot_path": str(conv_plot),
+        "thrust_stability_history_available": thrust_stability_history is not None,
         "residual_plot_path": str(residual_plot) if residual_plot is not None else None,
+        "residual_slope_info": residual_slope_info,
     }
 
 #create_simulation_report(r"C:\Users\jonas\Downloads\study\10x7E_7000RPM_blocks_resolution_16_48_16", 7000, "MRF")
