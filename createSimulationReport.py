@@ -12,6 +12,7 @@ from reportlab.pdfgen import canvas
 def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=None):
 
     def create_yplus_distribution_plot(case_path, report_dir, patch_name="propellerTip"):
+
         def get_latest_time_dir(case_path):
             time_dirs = []
 
@@ -23,7 +24,7 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
                         pass
 
             if not time_dirs:
-                return None, None
+                return None
 
             return max(time_dirs, key=lambda x: x[0])[1]
 
@@ -78,7 +79,6 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
             int(np.sum(yplus_values > 30)),
         ]
         class_percentages = [100.0 * c / total for c in class_counts]
-        class_labels = ["y+ < 5", "5 ≤ y+ ≤ 30", "y+ > 30"]
 
         # Finer block diagram to make the high-y+ region visible
         block_bins = [0.0, 5.0, 30.0, 50.0, 100.0, 200.0, np.inf]
@@ -111,25 +111,43 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
 
         yplus_plot = report_dir / "yplus_distribution.png"
 
-        plt.figure(figsize=(7.2, 4.0))
-        bars = plt.bar(block_labels, block_percentages)
+        fig, ax = plt.subplots(figsize=(7.4, 4.4))
+        bars = ax.bar(block_labels, block_percentages, zorder=3)
 
-        plt.ylabel("Surface face share [%]")
-        plt.xlabel("y+ interval")
-        plt.title(
-            f"y+ Block Distribution: {patch_name} "
+        ax.set_ylabel("Surface face share [%]")
+        ax.set_xlabel("y+ interval")
+        ax.set_title(
+            f"y+ Distribution of Propeller Surface "
             f"(avg. y+ = {yplus_stats['average_yplus']:.1f})"
         )
-        plt.grid(axis="y")
 
+        ax.grid(axis="y", zorder=0)
+        ax.set_axisbelow(True)
+
+        # Extra vertical space prevents labels from touching the top frame or gridlines.
+        max_percentage = max(block_percentages)
+        ax.set_ylim(0, max_percentage * 1.18 + 3)
+
+        # Labels are shifted above each bar and placed on a white background,
+        # so the grid does not reduce readability.
         for bar, percentage, count in zip(bars, block_percentages, block_counts):
-            plt.text(
+            label_y = bar.get_height() + 1.5
+
+            ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                bar.get_height(),
+                label_y,
                 f"{percentage:.1f}%\n({count})",
                 ha="center",
                 va="bottom",
                 fontsize=8,
+                bbox=dict(
+                    facecolor="white",
+                    edgecolor="none",
+                    alpha=0.9,
+                    pad=1.5,
+                ),
+                clip_on=False,
+                zorder=5,
             )
 
         note = (
@@ -137,11 +155,11 @@ def create_simulation_report(case_path, rpm, mode, turbulence_model, output_pdf=
             f"5-30 = {class_percentages[1]:.1f}%, "
             f">30 = {class_percentages[2]:.1f}%"
         )
-        plt.figtext(0.5, 0.01, note, ha="center", fontsize=9)
+        fig.text(0.5, 0.015, note, ha="center", fontsize=9)
 
-        plt.tight_layout(rect=(0, 0.06, 1, 1))
-        plt.savefig(yplus_plot, dpi=200)
-        plt.close()
+        fig.tight_layout(rect=(0, 0.07, 1, 0.96))
+        fig.savefig(yplus_plot, dpi=200)
+        plt.close(fig)
 
         return yplus_plot, yplus_stats
 

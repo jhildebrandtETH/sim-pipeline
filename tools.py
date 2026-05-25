@@ -492,11 +492,11 @@ def check_residuals(
     # SETTINGS
     # Bounds are now interpreted as slope/change OVER ONE REVOLUTION
     slope_bounds = {
-        "p":  (-10e-2, 10e-2), #(-5e-2, 1e-2)
-        "Ux": (-10e-2, 10e-3), #(-5e-2, 5e-3)
-        "Uy": (-10e-2, 10e-3), #(-5e-2, 5e-3)
-        "Uz": (-10e-2, 10e-3), #(-5e-2, 5e-3)
-        "k":  (-10e-2, 10e-3), #(-5e-2, 5e-3)
+        "p":  (-1e-2, 1e-2), #(-5e-2, 1e-2)
+        "Ux": (-1e-2, 1e-3), #(-5e-2, 5e-3)
+        "Uy": (-1e-2, 1e-3), #(-5e-2, 5e-3)
+        "Uz": (-1e-2, 1e-3), #(-5e-2, 5e-3)
+        "k":  (-1e-2, 1e-3), #(-5e-2, 5e-3)
     }
     ###
 
