@@ -131,7 +131,7 @@ functions
         libs            ("libfieldFunctionObjects.so");
         writeControl    writeTime;
     }
-
+    /*
     wakeLines
     {
         type            sets;
@@ -173,7 +173,8 @@ functions
             }
         );
     }
-
+        */
+    /*
     planeSamples
     {
         type            surfaces;
@@ -213,5 +214,6 @@ functions
             }
         }
     }
+        */
 }
 // ************************************************************************* //

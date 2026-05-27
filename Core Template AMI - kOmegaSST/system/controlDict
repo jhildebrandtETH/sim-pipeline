@@ -131,7 +131,7 @@ functions
         libs            ("libfieldFunctionObjects.so");
         writeControl    writeTime;
     }
-
+    /*
     wakeLines
     {
         type            sets;
@@ -172,6 +172,6 @@ functions
                 nPoints 100;
             }
         );
-    }
+    } */
 }
 // ************************************************************************* //
